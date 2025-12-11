@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { DocumentRecord } from '../types';
-import { FileText, Calendar, Trash2, Search, Plus, MapPin, Clock, Database, ArrowRight } from 'lucide-react';
+import { FileText, Calendar, Trash2, Search, Plus, MapPin, Clock, Database, ArrowRight, Layers } from 'lucide-react';
 import { Button } from './Button';
 
 interface DashboardProps {
@@ -19,7 +19,6 @@ const MONTH_NAMES = [
 const findDateColumnIndex = (headers: string[]): number => {
   if (!headers) return -1;
   const lowerHeaders = headers.map(h => h.toLowerCase());
-  // Hledáme běžné názvy pro datum
   return lowerHeaders.findIndex(h => 
     h.includes('datum') || 
     h.includes('dne') || 
@@ -34,45 +33,69 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
   const [centerFilter, setCenterFilter] = React.useState<string>('all');
   const [yearFilter, setYearFilter] = React.useState<string>('all');
   const [monthFilter, setMonthFilter] = React.useState<string>('all');
+  const [mergeDuplicates, setMergeDuplicates] = React.useState<boolean>(true); // Nový přepínač
 
-  // 1. KROK: Zploštění všech řádků ze všech dokumentů do jedné velké struktury
-  // Zároveň zde pro každý řádek zjistíme jeho "skutečné" datum z tabulky.
+  // 1. KROK: Zploštění všech řádků a volitelná deduplikace
   const allRows = useMemo(() => {
-    return documents.flatMap(doc => {
-      // Najdeme index sloupce, který obsahuje datum
-      const dateColIdx = findDateColumnIndex(doc.data.tableHeaders);
-      
-      return (doc.data.tableRows || []).map((row, index) => {
-        // Získáme datum přímo z buňky
-        const rowDateStr = dateColIdx >= 0 ? row.values[dateColIdx] : '';
-        
-        return {
-          id: `${doc.id}_${index}`,
-          originalDoc: doc,
-          values: row.values,
-          // Použijeme datum z řádku pro filtrování
-          filterDate: rowDateStr // Očekáváme formát YYYY-MM-DD díky instrukci pro AI
-        };
-      });
-    });
-  }, [documents]);
+    // Seřadíme dokumenty od nejnovějšího po nejstarší (podle data nahrání)
+    // To zajistí, že pokud máme duplicitu, prioritizujeme řádek z novějšího souboru (nebo naopak, dle logiky)
+    // Zde bereme prostě "první nalezený" jako unikátní.
+    const sortedDocs = [...documents].sort((a, b) => 
+        new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
+    );
+
+    const rows = [];
+    const seenSignatures = new Set<string>();
+
+    for (const doc of sortedDocs) {
+        const dateColIdx = findDateColumnIndex(doc.data.tableHeaders);
+
+        for (let i = 0; i < (doc.data.tableRows || []).length; i++) {
+            const row = doc.data.tableRows[i];
+            const rowDateStr = dateColIdx >= 0 ? row.values[dateColIdx] : '';
+
+            // Vytvoříme unikátní podpis řádku spojením všech jeho hodnot
+            // Přidáme i středisko, aby stejná data v různých střediscích nebyla považována za duplicitu
+            // Normalizujeme text (trim, lowercase) pro lepší shodu
+            const signature = [
+                doc.data.center, 
+                ...row.values.map(v => v?.trim().toLowerCase())
+            ].join('|');
+
+            // Pokud je zapnuto slučování a tento řádek jsme už viděli, přeskočíme ho
+            if (mergeDuplicates && seenSignatures.has(signature)) {
+                continue;
+            }
+
+            if (mergeDuplicates) {
+                seenSignatures.add(signature);
+            }
+
+            rows.push({
+                id: `${doc.id}_${i}`,
+                originalDoc: doc,
+                values: row.values,
+                filterDate: rowDateStr
+            });
+        }
+    }
+
+    return rows;
+  }, [documents, mergeDuplicates]);
 
   // --- Pomocné funkce pro parsování data z řádku ---
   const getYearFromRow = (dateStr: string) => {
     if (!dateStr) return '';
-    // Zkusíme najít rok (4 číslice)
     const match = dateStr.match(/\d{4}/);
     return match ? match[0] : '';
   };
 
   const getMonthFromRow = (dateStr: string) => {
     if (!dateStr) return '';
-    // Pokud je formát YYYY-MM-DD
     const parts = dateStr.split('-');
     if (parts.length > 1) {
         return parseInt(parts[1], 10).toString();
     }
-    // Fallback: pokud je formát DD.MM.YYYY
     const partsDot = dateStr.split('.');
     if (partsDot.length > 1) {
         return parseInt(partsDot[1], 10).toString();
@@ -80,11 +103,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     return '';
   };
 
-  // 2. KROK: Extrakt unikátních hodnot pro filtry (z ŘÁDKŮ, ne z dokumentů)
+  // 2. KROK: Extrakt unikátních hodnot pro filtry (z ŘÁDKŮ)
   const centers = Array.from(new Set(documents.map(d => d.data.center))).filter(Boolean).sort();
   
   const years = Array.from(new Set(allRows.map(r => getYearFromRow(r.filterDate))))
-    .filter(y => y && y.length === 4) // Validní roky
+    .filter(y => y && y.length === 4)
     .sort()
     .reverse();
 
@@ -94,12 +117,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     const rowMonth = getMonthFromRow(row.filterDate);
     const center = row.originalDoc.data.center;
 
-    // Filtry dropdownů
     const matchesCenter = centerFilter === 'all' || center === centerFilter;
     const matchesYear = yearFilter === 'all' || rowYear === yearFilter;
     const matchesMonth = monthFilter === 'all' || rowMonth === monthFilter;
 
-    // Fulltext vyhledávání
     const lowerTerm = searchTerm.toLowerCase();
     const matchesSearch = searchTerm === '' || 
       row.values.some(val => val && val.toLowerCase().includes(lowerTerm)) ||
@@ -109,9 +130,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     return matchesCenter && matchesYear && matchesMonth && matchesSearch;
   });
 
-  // Získáme hlavičky z prvního filtrovaného řádku (dokumentu) pro zobrazení tabulky
-  // Předpoklad: Pokud filtruju, chci vidět strukturu odpovídající filtrovaným datům.
-  // Pokud jsou dokumenty různé, vezmeme hlavičky z prvního nalezeného dokumentu ve výběru.
   const displayHeaders = filteredRows.length > 0 
     ? filteredRows[0].originalDoc.data.tableHeaders 
     : (documents.length > 0 ? documents[0].data.tableHeaders : []);
@@ -134,7 +152,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
 
       {/* Filters Row */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
             
             {/* Center Filter */}
             <div className="relative">
@@ -156,7 +174,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
 
             {/* Year Filter */}
             <div className="relative">
-                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Rok (z inspekce)</label>
+                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Rok</label>
                 <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <select
@@ -174,7 +192,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
 
             {/* Month Filter */}
             <div className="relative">
-                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Měsíc (z inspekce)</label>
+                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Měsíc</label>
                 <div className="relative">
                     <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <select
@@ -192,7 +210,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
 
              {/* Search */}
              <div className="relative">
-                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Hledat v datech</label>
+                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Hledat</label>
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input 
@@ -203,6 +221,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                     className="w-full pl-9 pr-4 py-2 bg-white text-slate-900 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                     />
                 </div>
+            </div>
+
+            {/* Merge Duplicates Toggle */}
+            <div className="relative flex items-center h-full pt-6">
+                <label className="flex items-center cursor-pointer select-none">
+                    <div className="relative">
+                        <input 
+                            type="checkbox" 
+                            className="sr-only" 
+                            checked={mergeDuplicates}
+                            onChange={(e) => setMergeDuplicates(e.target.checked)}
+                        />
+                        <div className={`block w-10 h-6 rounded-full transition-colors ${mergeDuplicates ? 'bg-blue-600' : 'bg-slate-300'}`}></div>
+                        <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${mergeDuplicates ? 'transform translate-x-4' : ''}`}></div>
+                    </div>
+                    <div className="ml-3 text-sm font-medium text-slate-600 flex items-center">
+                        <Layers size={16} className="mr-1.5 text-slate-400" />
+                        Sloučit duplicity
+                    </div>
+                </label>
             </div>
         </div>
       </div>
@@ -296,8 +334,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
         )}
         
         {filteredRows.length > 0 && (
-             <div className="bg-slate-50 p-3 text-xs text-slate-500 text-center border-t border-slate-200">
-                Zobrazeno {filteredRows.length} řádků z {documents.length} dokumentů.
+             <div className="bg-slate-50 p-3 text-xs text-slate-500 text-center border-t border-slate-200 flex justify-between items-center">
+                <span>Zobrazeno {filteredRows.length} řádků.</span>
+                {mergeDuplicates && (
+                    <span className="text-blue-600 flex items-center">
+                        <Layers size={12} className="mr-1" />
+                        Duplicity jsou skryté
+                    </span>
+                )}
             </div>
         )}
       </div>
