@@ -42,7 +42,7 @@ const analysisSchema: Schema = {
     },
     date: {
       type: Type.STRING,
-      description: "Datum provedení inspekce nebo prohlídky (YYYY-MM-DD). Hledej texty jako 'Datum prohlídky', 'Datum inspekce', 'Datum pořízení záznamu' nebo 'Ze dne'. DŮLEŽITÉ: Ignoruj datum tisku, datum vygenerování reportu nebo dnešní datum, pokud to není datum inspekce.",
+      description: "Hlavní datum reportu (YYYY-MM-DD). Pokud report obsahuje tabulku s daty prohlídek, použij nejčastější měsíc/rok z této tabulky. IGNORUJ datum tisku nebo stažení souboru.",
     },
     category: {
       type: Type.STRING,
@@ -60,7 +60,7 @@ const analysisSchema: Schema = {
     tableHeaders: {
       type: Type.ARRAY,
       items: { type: Type.STRING },
-      description: "Přesné názvy sloupců nalezené v hlavní tabulce dokumentu (např. ['Kód', 'Popis', 'Množství', 'Cena celkem']).",
+      description: "Přesné názvy sloupců nalezené v hlavní tabulce dokumentu. Příklad: ['Datum', 'Ulice', 'Druh závady', 'Stav'].",
     },
     tableRows: {
       type: Type.ARRAY,
@@ -70,7 +70,7 @@ const analysisSchema: Schema = {
           values: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-            description: "Hodnoty v řádku seřazené přesně podle tableHeaders. Vše převedeno na text."
+            description: "Hodnoty v řádku. DŮLEŽITÉ: Pokud je ve sloupci datum, VŽDY ho převeď do formátu YYYY-MM-DD (např. 2023-10-15). Ostatní hodnoty nech jak jsou."
           }
         }
       },
@@ -104,7 +104,7 @@ export const analyzePdfDocument = async (base64Pdf: string): Promise<ExtractedDa
               },
             },
             {
-              text: "Analyzuj tento PDF dokument o kamerové prohlídce/inspekci. Tvým hlavním úkolem je najít správné 'Datum inspekce' (nikoliv datum tisku). Dále najdi středisko a hlavní tabulku s daty o prohlídce.",
+              text: "Analyzuj tento PDF dokument o kamerové prohlídce/inspekci. Extrahuj tabulku s daty. Je kriticky důležité, abys u každého řádku v tabulce správně identifikoval datum inspekce a naformátoval ho jako YYYY-MM-DD.",
             },
           ],
         },

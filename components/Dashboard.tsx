@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { DocumentRecord } from '../types';
 import { FileText, Calendar, Trash2, Search, Plus, MapPin, Clock, Database, ArrowRight } from 'lucide-react';
 import { Button } from './Button';
@@ -15,75 +15,107 @@ const MONTH_NAMES = [
   "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"
 ];
 
+// Helper to detect date column index based on header name
+const findDateColumnIndex = (headers: string[]): number => {
+  if (!headers) return -1;
+  const lowerHeaders = headers.map(h => h.toLowerCase());
+  // Hledáme běžné názvy pro datum
+  return lowerHeaders.findIndex(h => 
+    h.includes('datum') || 
+    h.includes('dne') || 
+    h.includes('kdy') || 
+    h.includes('termín') ||
+    h.includes('date')
+  );
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onDeleteClick, onViewClick }) => {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [centerFilter, setCenterFilter] = React.useState<string>('all');
   const [yearFilter, setYearFilter] = React.useState<string>('all');
   const [monthFilter, setMonthFilter] = React.useState<string>('all');
 
-  // --- Pomocné funkce pro práci s datem ---
-  // Datum v DB je očekáváno jako YYYY-MM-DD
-  const getYearFromStr = (dateStr: string) => dateStr ? dateStr.split('-')[0] : '';
-  const getMonthFromStr = (dateStr: string) => {
+  // 1. KROK: Zploštění všech řádků ze všech dokumentů do jedné velké struktury
+  // Zároveň zde pro každý řádek zjistíme jeho "skutečné" datum z tabulky.
+  const allRows = useMemo(() => {
+    return documents.flatMap(doc => {
+      // Najdeme index sloupce, který obsahuje datum
+      const dateColIdx = findDateColumnIndex(doc.data.tableHeaders);
+      
+      return (doc.data.tableRows || []).map((row, index) => {
+        // Získáme datum přímo z buňky
+        const rowDateStr = dateColIdx >= 0 ? row.values[dateColIdx] : '';
+        
+        return {
+          id: `${doc.id}_${index}`,
+          originalDoc: doc,
+          values: row.values,
+          // Použijeme datum z řádku pro filtrování
+          filterDate: rowDateStr // Očekáváme formát YYYY-MM-DD díky instrukci pro AI
+        };
+      });
+    });
+  }, [documents]);
+
+  // --- Pomocné funkce pro parsování data z řádku ---
+  const getYearFromRow = (dateStr: string) => {
     if (!dateStr) return '';
-    const parts = dateStr.split('-');
-    // Pokud je formát YYYY-MM-DD, měsíc je na indexu 1
-    // Odstraníme úvodní nulu, aby "05" bylo "5" (shoda s indexem v poli měsíců 1-12)
-    return parts.length > 1 ? parseInt(parts[1], 10).toString() : '';
+    // Zkusíme najít rok (4 číslice)
+    const match = dateStr.match(/\d{4}/);
+    return match ? match[0] : '';
   };
 
-  // --- Extrakt unikátních hodnot pro filtry ---
+  const getMonthFromRow = (dateStr: string) => {
+    if (!dateStr) return '';
+    // Pokud je formát YYYY-MM-DD
+    const parts = dateStr.split('-');
+    if (parts.length > 1) {
+        return parseInt(parts[1], 10).toString();
+    }
+    // Fallback: pokud je formát DD.MM.YYYY
+    const partsDot = dateStr.split('.');
+    if (partsDot.length > 1) {
+        return parseInt(partsDot[1], 10).toString();
+    }
+    return '';
+  };
+
+  // 2. KROK: Extrakt unikátních hodnot pro filtry (z ŘÁDKŮ, ne z dokumentů)
   const centers = Array.from(new Set(documents.map(d => d.data.center))).filter(Boolean).sort();
   
-  const years = Array.from(new Set(documents.map(d => getYearFromStr(d.data.date))))
-    .filter(y => y.length === 4)
+  const years = Array.from(new Set(allRows.map(r => getYearFromRow(r.filterDate))))
+    .filter(y => y && y.length === 4) // Validní roky
     .sort()
     .reverse();
 
-  // --- Filtrování dokumentů ---
-  const filteredDocs = documents.filter(doc => {
-    const docYear = getYearFromStr(doc.data.date);
-    const docMonth = getMonthFromStr(doc.data.date);
+  // 3. KROK: Filtrování řádků
+  const filteredRows = allRows.filter(row => {
+    const rowYear = getYearFromRow(row.filterDate);
+    const rowMonth = getMonthFromRow(row.filterDate);
+    const center = row.originalDoc.data.center;
 
+    // Filtry dropdownů
+    const matchesCenter = centerFilter === 'all' || center === centerFilter;
+    const matchesYear = yearFilter === 'all' || rowYear === yearFilter;
+    const matchesMonth = monthFilter === 'all' || rowMonth === monthFilter;
+
+    // Fulltext vyhledávání
     const lowerTerm = searchTerm.toLowerCase();
-    
-    // 1. Prohledávání metadat
-    const matchesMeta = 
-      doc.data.title.toLowerCase().includes(lowerTerm) || 
-      doc.data.summary.toLowerCase().includes(lowerTerm) ||
-      (doc.data.center && doc.data.center.toLowerCase().includes(lowerTerm));
+    const matchesSearch = searchTerm === '' || 
+      row.values.some(val => val && val.toLowerCase().includes(lowerTerm)) ||
+      center.toLowerCase().includes(lowerTerm) ||
+      row.originalDoc.data.title.toLowerCase().includes(lowerTerm);
 
-    // 2. Prohledávání tabulky
-    const matchesTableData = doc.data.tableRows?.some(row => 
-      row.values.some(val => val && val.toLowerCase().includes(lowerTerm))
-    );
-
-    const matchesSearch = searchTerm === '' || matchesMeta || matchesTableData;
-    const matchesCenter = centerFilter === 'all' || doc.data.center === centerFilter;
-    const matchesYear = yearFilter === 'all' || docYear === yearFilter;
-    const matchesMonth = monthFilter === 'all' || docMonth === monthFilter;
-    
-    return matchesSearch && matchesCenter && matchesYear && matchesMonth;
+    return matchesCenter && matchesYear && matchesMonth && matchesSearch;
   });
 
-  // --- Agregace řádků pro zobrazení "Data rovnou" ---
-  // Vytvoříme jedno velké pole všech řádků ze všech vyfiltrovaných dokumentů
-  const aggregatedRows = filteredDocs.flatMap(doc => {
-    return (doc.data.tableRows || []).map((row, index) => ({
-      id: `${doc.id}_${index}`, // Unikátní ID pro React key
-      originalDoc: doc,
-      values: row.values
-    }));
-  });
+  // Získáme hlavičky z prvního filtrovaného řádku (dokumentu) pro zobrazení tabulky
+  // Předpoklad: Pokud filtruju, chci vidět strukturu odpovídající filtrovaným datům.
+  // Pokud jsou dokumenty různé, vezmeme hlavičky z prvního nalezeného dokumentu ve výběru.
+  const displayHeaders = filteredRows.length > 0 
+    ? filteredRows[0].originalDoc.data.tableHeaders 
+    : (documents.length > 0 ? documents[0].data.tableHeaders : []);
 
-  // Získáme hlavičky z prvního dokumentu (předpokládáme, že ve stejném středisku/filtru budou stejné)
-  // Pokud nejsou žádné dokumenty, nemáme hlavičky
-  const tableHeaders = filteredDocs.length > 0 && filteredDocs[0].data.tableHeaders 
-    ? filteredDocs[0].data.tableHeaders 
-    : [];
-
-  // Pokud dokumenty mají různé počty sloupců, ošetříme to při vykreslování
-  
   return (
     <div className="space-y-6">
       {/* Top Action Bar */}
@@ -124,7 +156,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
 
             {/* Year Filter */}
             <div className="relative">
-                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Rok</label>
+                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Rok (z inspekce)</label>
                 <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <select
@@ -142,7 +174,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
 
             {/* Month Filter */}
             <div className="relative">
-                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Měsíc</label>
+                <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Měsíc (z inspekce)</label>
                 <div className="relative">
                     <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <select
@@ -165,7 +197,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input 
                     type="text"
-                    placeholder="Hledat text..."
+                    placeholder="Hledat..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-9 pr-4 py-2 bg-white text-slate-900 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
@@ -177,7 +209,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
 
       {/* Main Data Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        {aggregatedRows.length === 0 ? (
+        {filteredRows.length === 0 ? (
           <div className="p-12 text-center text-slate-500">
             <Database size={48} className="mx-auto text-slate-300 mb-4" />
             <p className="text-lg font-medium">Žádná data k zobrazení.</p>
@@ -188,22 +220,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50">
                 <tr>
-                  {/* Pevné sloupce: Datum, Středisko (pokud není filtrováno) */}
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap w-24">
-                    Datum inspekce
-                  </th>
+                  {/* Sloupec Středisko */}
                   {centerFilter === 'all' && (
                     <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                         Středisko
                     </th>
                   )}
                   
-                  {/* Dynamické sloupce z PDF */}
-                  {tableHeaders.map((header, idx) => (
+                  {/* Dynamické sloupce z PDF (včetně data inspekce, které je teď součástí tabulky) */}
+                  {displayHeaders.map((header, idx) => (
                     <th 
                       key={idx} 
                       scope="col" 
-                      className="px-4 py-3 text-left text-xs font-bold text-slate-800 uppercase tracking-wider whitespace-nowrap"
+                      className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
+                        header.toLowerCase().includes('datum') ? 'text-blue-700 bg-blue-50' : 'text-slate-800'
+                      }`}
                     >
                       {header}
                     </th>
@@ -216,29 +247,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
-                {aggregatedRows.map((row) => (
+                {filteredRows.map((row) => (
                   <tr key={row.id} className="hover:bg-blue-50 transition-colors group">
-                    {/* Datum */}
-                    <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
-                        {row.originalDoc.data.date}
-                    </td>
                     
-                    {/* Středisko (pokud není vybrané) */}
+                    {/* Středisko */}
                     {centerFilter === 'all' && (
                         <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap font-medium">
                             {row.originalDoc.data.center}
                         </td>
                     )}
 
-                    {/* Dynamická data */}
-                    {tableHeaders.map((_, colIdx) => (
-                        <td key={colIdx} className="px-4 py-3 text-sm text-slate-800 font-medium">
+                    {/* Dynamická data - pouze hodnoty z PDF */}
+                    {displayHeaders.map((header, colIdx) => (
+                        <td 
+                            key={colIdx} 
+                            className={`px-4 py-3 text-sm font-medium ${
+                                header.toLowerCase().includes('datum') ? 'text-blue-700 whitespace-nowrap' : 'text-slate-800'
+                            }`}
+                        >
                             {row.values[colIdx] || '-'}
                         </td>
                     ))}
 
                     {/* Odkaz na dokument / Akce */}
-                    <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
+                    <td className="px-4 py-3 text-sm text-right whitespace-nowrap w-24">
                         <div className="flex items-center justify-end gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                              <button 
                                 onClick={() => onViewClick(row.originalDoc)}
@@ -263,9 +295,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
           </div>
         )}
         
-        {aggregatedRows.length > 0 && (
+        {filteredRows.length > 0 && (
              <div className="bg-slate-50 p-3 text-xs text-slate-500 text-center border-t border-slate-200">
-                Zobrazeno {aggregatedRows.length} řádků z {filteredDocs.length} dokumentů.
+                Zobrazeno {filteredRows.length} řádků z {documents.length} dokumentů.
             </div>
         )}
       </div>
