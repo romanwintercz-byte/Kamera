@@ -52,6 +52,25 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanComplete, onCancel }) =>
       const base64Data = await convertFileToBase64(file);
       const extractedData = await analyzePdfDocument(base64Data);
 
+      // PŘEJMENOVÁNÍ DLE POŽADAVKU: Středisko - Rok/Měsíc
+      // Datum je ve formátu YYYY-MM-DD
+      let formattedTitle = extractedData.title;
+      try {
+        const dateObj = new Date(extractedData.date);
+        if (!isNaN(dateObj.getTime())) {
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const centerName = extractedData.center && extractedData.center !== 'Neurčeno' 
+                ? extractedData.center 
+                : 'Neznámé středisko';
+            
+            formattedTitle = `${centerName} - ${year}/${month}`;
+            extractedData.title = formattedTitle; // Aktualizace v datech
+        }
+      } catch (e) {
+        console.warn("Nepodařilo se formátovat název podle data", e);
+      }
+
       const newRecord: DocumentRecord = {
         id: uuidv4(),
         fileName: file.name,
