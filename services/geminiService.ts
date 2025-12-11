@@ -80,42 +80,80 @@ const analysisSchema: Schema = {
   required: ["title", "summary", "category", "center", "tags", "tableHeaders", "tableRows"],
 };
 
+// Pomocná funkce pro čekání
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export const analyzePdfDocument = async (base64Pdf: string): Promise<ExtractedData> => {
   if (!apiKey) {
     throw new Error("API Key chybí. Ujistěte se, že máte nastavenou proměnnou prostředí VITE_API_KEY (nebo API_KEY) ve Vercel nastavení.");
   }
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: "application/pdf",
-              data: base64Pdf,
+  const MAX_RETRIES = 3;
+  let lastError: any;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: "application/pdf",
+                data: base64Pdf,
+              },
             },
-          },
-          {
-            text: "Analyzuj tento PDF dokument. Najdi v hlavičce 'Středisko' (např. Teplice, Most) a ulož ho. Dále najdi hlavní tabulku s daty. Extrahuj názvy sloupců do 'tableHeaders' a obsah řádků do 'tableRows'. Každý sloupec v PDF musí odpovídat jedné hodnotě v poli 'values'.",
-          },
-        ],
-      },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: analysisSchema,
-      },
-    });
+            {
+              text: "Analyzuj tento PDF dokument. Najdi v hlavičce 'Středisko' (např. Teplice, Most) a ulož ho. Dále najdi hlavní tabulku s daty. Extrahuj názvy sloupců do 'tableHeaders' a obsah řádků do 'tableRows'. Každý sloupec v PDF musí odpovídat jedné hodnotě v poli 'values'.",
+            },
+          ],
+        },
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: analysisSchema,
+        },
+      });
 
-    const text = response.text;
-    if (!text) {
-      throw new Error("No response text received from Gemini.");
+      const text = response.text;
+      if (!text) {
+        throw new Error("No response text received from Gemini.");
+      }
+
+      const data = JSON.parse(text) as ExtractedData;
+      return data;
+
+    } catch (error: any) {
+      console.warn(`Pokus ${attempt + 1} selhal:`, error);
+      lastError = error;
+
+      // Zkontrolujeme, zda jde o chybu přetížení (503) nebo nedostupnosti
+      const isOverloaded = 
+        error?.status === 503 || 
+        error?.code === 503 || 
+        (error?.message && (
+          error.message.includes('503') || 
+          error.message.includes('overloaded') || 
+          error.message.includes('UNAVAILABLE')
+        ));
+
+      // Pokud je model přetížený a máme ještě pokusy, počkáme a zkusíme znovu
+      if (isOverloaded && attempt < MAX_RETRIES - 1) {
+        // Exponenciální backoff: 2s, 4s, 8s...
+        const waitTime = 2000 * Math.pow(2, attempt);
+        console.log(`Model je přetížený. Čekám ${waitTime}ms před dalším pokusem...`);
+        await delay(waitTime);
+        continue;
+      }
+
+      // Pokud to není chyba přetížení nebo došly pokusy, smyčku ukončíme (chyba se vyhodí níže)
+      break;
     }
-
-    const data = JSON.parse(text) as ExtractedData;
-    return data;
-  } catch (error) {
-    console.error("Error analyzing PDF:", error);
-    throw error;
   }
+
+  // Pokud se to nepovedlo ani po všech pokusech
+  if (lastError?.status === 503 || lastError?.message?.includes('overloaded')) {
+    throw new Error("Služba AI je momentálně extrémně vytížená. Zkuste to prosím za chvíli znovu.");
+  }
+
+  throw lastError || new Error("Nastala neznámá chyba při analýze dokumentu.");
 };
