@@ -1,0 +1,5 @@
+{
+  "name": "Kamerové prohlídky",
+  "description": "Jednoduchá databáze, která automaticky extrahuje data z nahraných PDF souborů pomocí Gemini AI a ukládá je do prohlížeče.",
+  "requestFramePermissions": []
+}
