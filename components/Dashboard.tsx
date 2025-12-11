@@ -190,7 +190,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                 <tr>
                   {/* Pevné sloupce: Datum, Středisko (pokud není filtrováno) */}
                   <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap w-24">
-                    Datum
+                    Datum inspekce
                   </th>
                   {centerFilter === 'all' && (
                     <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">

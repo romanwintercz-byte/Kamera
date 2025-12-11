@@ -42,7 +42,7 @@ const analysisSchema: Schema = {
     },
     date: {
       type: Type.STRING,
-      description: "Datum uvedené v dokumentu (např. datum faktury, datum vydání) ve formátu RRRR-MM-DD. Pokud není nalezeno, použij dnešní.",
+      description: "Datum provedení inspekce nebo prohlídky (YYYY-MM-DD). Hledej texty jako 'Datum prohlídky', 'Datum inspekce', 'Datum pořízení záznamu' nebo 'Ze dne'. DŮLEŽITÉ: Ignoruj datum tisku, datum vygenerování reportu nebo dnešní datum, pokud to není datum inspekce.",
     },
     category: {
       type: Type.STRING,
@@ -104,7 +104,7 @@ export const analyzePdfDocument = async (base64Pdf: string): Promise<ExtractedDa
               },
             },
             {
-              text: "Analyzuj tento PDF dokument. Najdi v hlavičce 'Středisko' (např. Teplice, Most) a ulož ho. Dále najdi hlavní tabulku s daty. Extrahuj názvy sloupců do 'tableHeaders' a obsah řádků do 'tableRows'. Každý sloupec v PDF musí odpovídat jedné hodnotě v poli 'values'.",
+              text: "Analyzuj tento PDF dokument o kamerové prohlídce/inspekci. Tvým hlavním úkolem je najít správné 'Datum inspekce' (nikoliv datum tisku). Dále najdi středisko a hlavní tabulku s daty o prohlídce.",
             },
           ],
         },
