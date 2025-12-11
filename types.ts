@@ -1,5 +1,13 @@
+export enum RowStatus {
+  NEW = 'NEW',
+  UPLOADED = 'UPLOADED',
+  REVISION = 'REVISION',
+  UNUSABLE = 'UNUSABLE'
+}
+
 export interface TableRow {
   values: string[];
+  status?: RowStatus; // Volitelné, protože starší data to nemají
 }
 
 export interface ExtractedData {
@@ -7,7 +15,7 @@ export interface ExtractedData {
   summary: string;
   date: string;
   category: string;
-  center: string; // Nové pole pro Středisko
+  center: string;
   tags: string[];
   tableHeaders: string[];
   tableRows: TableRow[];
@@ -18,7 +26,7 @@ export interface DocumentRecord {
   fileName: string;
   uploadDate: string;
   data: ExtractedData;
-  rawBase64?: string; // Storing for preview if needed, keeping it simple for now
+  rawBase64?: string;
 }
 
 export enum AppView {

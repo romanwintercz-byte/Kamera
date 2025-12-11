@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
-import { DocumentRecord } from '../types';
-import { FileText, Calendar, Trash2, Search, Plus, MapPin, Clock, Database, ArrowRight, Layers } from 'lucide-react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { DocumentRecord, RowStatus } from '../types';
+import { FileText, Calendar, Search, Plus, MapPin, Clock, Database, Layers, CheckCircle2, AlertTriangle, Ban, MoreHorizontal, Eye } from 'lucide-react';
 import { Button } from './Button';
 
 interface DashboardProps {
@@ -8,6 +8,7 @@ interface DashboardProps {
   onAddClick: () => void;
   onDeleteClick: (id: string) => void;
   onViewClick: (doc: DocumentRecord) => void;
+  onStatusChange: (docId: string, rowIndex: number, status: RowStatus) => void;
 }
 
 const MONTH_NAMES = [
@@ -28,18 +29,74 @@ const findDateColumnIndex = (headers: string[]): number => {
   );
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onDeleteClick, onViewClick }) => {
+// --- Komponenta pro Status Menu ---
+const StatusMenu: React.FC<{ 
+  currentStatus?: RowStatus, 
+  onSelect: (s: RowStatus) => void 
+}> = ({ currentStatus, onSelect }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Zavření při kliknutí mimo
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const getStatusLabel = () => {
+    switch(currentStatus) {
+      case RowStatus.UPLOADED: return <span className="flex items-center text-emerald-700 font-bold"><CheckCircle2 size={16} className="mr-1.5"/> Nahráno</span>;
+      case RowStatus.REVISION: return <span className="flex items-center text-amber-700 font-bold"><AlertTriangle size={16} className="mr-1.5"/> Na úpravu</span>;
+      case RowStatus.UNUSABLE: return <span className="flex items-center text-red-700 font-bold"><Ban size={16} className="mr-1.5"/> Nelze použít</span>;
+      default: return <span className="text-slate-400 font-medium">Nový</span>;
+    }
+  };
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center justify-between w-36 px-3 py-1.5 bg-white/50 hover:bg-white border border-transparent hover:border-slate-300 rounded-lg transition-all text-sm"
+      >
+        {getStatusLabel()}
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-xl border border-slate-100 z-50 overflow-hidden text-sm">
+           <div className="p-1 space-y-0.5">
+              <button onClick={() => { onSelect(RowStatus.UPLOADED); setIsOpen(false); }} className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-emerald-700 rounded-md flex items-center">
+                <CheckCircle2 size={16} className="mr-2"/> Nahráno
+              </button>
+              <button onClick={() => { onSelect(RowStatus.REVISION); setIsOpen(false); }} className="w-full text-left px-3 py-2 hover:bg-amber-50 text-amber-700 rounded-md flex items-center">
+                <AlertTriangle size={16} className="mr-2"/> Odesláno na úpravu
+              </button>
+              <button onClick={() => { onSelect(RowStatus.UNUSABLE); setIsOpen(false); }} className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 rounded-md flex items-center">
+                <Ban size={16} className="mr-2"/> Nelze použít
+              </button>
+              <div className="h-px bg-slate-100 my-1"></div>
+              <button onClick={() => { onSelect(RowStatus.NEW); setIsOpen(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-600 rounded-md">
+                Resetovat stav
+              </button>
+           </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onDeleteClick, onViewClick, onStatusChange }) => {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [centerFilter, setCenterFilter] = React.useState<string>('all');
   const [yearFilter, setYearFilter] = React.useState<string>('all');
   const [monthFilter, setMonthFilter] = React.useState<string>('all');
-  const [mergeDuplicates, setMergeDuplicates] = React.useState<boolean>(true); // Nový přepínač
+  const [mergeDuplicates, setMergeDuplicates] = React.useState<boolean>(true);
 
-  // 1. KROK: Zploštění všech řádků a volitelná deduplikace
   const allRows = useMemo(() => {
-    // Seřadíme dokumenty od nejnovějšího po nejstarší (podle data nahrání)
-    // To zajistí, že pokud máme duplicitu, prioritizujeme řádek z novějšího souboru (nebo naopak, dle logiky)
-    // Zde bereme prostě "první nalezený" jako unikátní.
     const sortedDocs = [...documents].sort((a, b) => 
         new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
     );
@@ -54,15 +111,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
             const row = doc.data.tableRows[i];
             const rowDateStr = dateColIdx >= 0 ? row.values[dateColIdx] : '';
 
-            // Vytvoříme unikátní podpis řádku spojením všech jeho hodnot
-            // Přidáme i středisko, aby stejná data v různých střediscích nebyla považována za duplicitu
-            // Normalizujeme text (trim, lowercase) pro lepší shodu
             const signature = [
                 doc.data.center, 
                 ...row.values.map(v => v?.trim().toLowerCase())
             ].join('|');
 
-            // Pokud je zapnuto slučování a tento řádek jsme už viděli, přeskočíme ho
             if (mergeDuplicates && seenSignatures.has(signature)) {
                 continue;
             }
@@ -73,9 +126,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
 
             rows.push({
                 id: `${doc.id}_${i}`,
+                docId: doc.id,
+                rowIndex: i,
                 originalDoc: doc,
                 values: row.values,
-                filterDate: rowDateStr
+                filterDate: rowDateStr,
+                status: row.status || RowStatus.NEW
             });
         }
     }
@@ -83,7 +139,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     return rows;
   }, [documents, mergeDuplicates]);
 
-  // --- Pomocné funkce pro parsování data z řádku ---
+  // --- Helpers for date filters ---
   const getYearFromRow = (dateStr: string) => {
     if (!dateStr) return '';
     const match = dateStr.match(/\d{4}/);
@@ -103,15 +159,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     return '';
   };
 
-  // 2. KROK: Extrakt unikátních hodnot pro filtry (z ŘÁDKŮ)
   const centers = Array.from(new Set(documents.map(d => d.data.center))).filter(Boolean).sort();
-  
   const years = Array.from(new Set(allRows.map(r => getYearFromRow(r.filterDate))))
-    .filter(y => y && y.length === 4)
-    .sort()
-    .reverse();
+    .filter(y => y && y.length === 4).sort().reverse();
 
-  // 3. KROK: Filtrování řádků
   const filteredRows = allRows.filter(row => {
     const rowYear = getYearFromRow(row.filterDate);
     const rowMonth = getMonthFromRow(row.filterDate);
@@ -134,6 +185,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     ? filteredRows[0].originalDoc.data.tableHeaders 
     : (documents.length > 0 ? documents[0].data.tableHeaders : []);
 
+  // --- Funkce pro určení tříd řádku podle stavu ---
+  const getRowClasses = (status: RowStatus) => {
+    const base = "transition-colors border-b border-slate-100 last:border-0";
+    switch(status) {
+        case RowStatus.UPLOADED:
+            return `${base} bg-emerald-50/70 hover:bg-emerald-100/80`;
+        case RowStatus.REVISION:
+            return `${base} bg-amber-50/70 hover:bg-amber-100/80`;
+        case RowStatus.UNUSABLE:
+            return `${base} bg-red-50/70 hover:bg-red-100/80`;
+        default:
+            return `${base} hover:bg-blue-50`;
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Action Bar */}
@@ -154,7 +220,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
             
-            {/* Center Filter */}
             <div className="relative">
                 <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Středisko</label>
                 <div className="relative">
@@ -172,7 +237,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                 </div>
             </div>
 
-            {/* Year Filter */}
             <div className="relative">
                 <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Rok</label>
                 <div className="relative">
@@ -190,7 +254,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                 </div>
             </div>
 
-            {/* Month Filter */}
             <div className="relative">
                 <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Měsíc</label>
                 <div className="relative">
@@ -208,7 +271,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                 </div>
             </div>
 
-             {/* Search */}
              <div className="relative">
                 <label className="block text-xs font-semibold text-slate-500 mb-1 ml-1">Hledat</label>
                 <div className="relative">
@@ -223,7 +285,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                 </div>
             </div>
 
-            {/* Merge Duplicates Toggle */}
             <div className="relative flex items-center h-full pt-6">
                 <label className="flex items-center cursor-pointer select-none">
                     <div className="relative">
@@ -254,76 +315,68 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
             <p className="text-sm">Zkuste upravit filtry nebo nahrajte nový dokument.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50">
+          <div className="overflow-x-auto min-h-[400px]">
+            <table className="min-w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  {/* Sloupec Středisko */}
                   {centerFilter === 'all' && (
-                    <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                         Středisko
                     </th>
                   )}
                   
-                  {/* Dynamické sloupce z PDF (včetně data inspekce, které je teď součástí tabulky) */}
                   {displayHeaders.map((header, idx) => (
                     <th 
                       key={idx} 
-                      scope="col" 
-                      className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
-                        header.toLowerCase().includes('datum') ? 'text-blue-700 bg-blue-50' : 'text-slate-800'
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
+                        header.toLowerCase().includes('datum') ? 'text-blue-700 bg-blue-50/50' : 'text-slate-700'
                       }`}
                     >
                       {header}
                     </th>
                   ))}
 
-                  {/* Akce */}
-                  <th scope="col" className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                    Zdroj
+                  <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap w-48">
+                    Stav / Akce
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
+              <tbody className="bg-white">
                 {filteredRows.map((row) => (
-                  <tr key={row.id} className="hover:bg-blue-50 transition-colors group">
+                  <tr key={row.id} className={getRowClasses(row.status)}>
                     
-                    {/* Středisko */}
                     {centerFilter === 'all' && (
                         <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap font-medium">
                             {row.originalDoc.data.center}
                         </td>
                     )}
 
-                    {/* Dynamická data - pouze hodnoty z PDF */}
                     {displayHeaders.map((header, colIdx) => (
                         <td 
                             key={colIdx} 
                             className={`px-4 py-3 text-sm font-medium ${
-                                header.toLowerCase().includes('datum') ? 'text-blue-700 whitespace-nowrap' : 'text-slate-800'
+                                header.toLowerCase().includes('datum') ? 'text-blue-800 whitespace-nowrap font-bold' : 'text-slate-700'
                             }`}
                         >
                             {row.values[colIdx] || '-'}
                         </td>
                     ))}
 
-                    {/* Odkaz na dokument / Akce */}
-                    <td className="px-4 py-3 text-sm text-right whitespace-nowrap w-24">
-                        <div className="flex items-center justify-end gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                             <button 
+                    {/* Stav a Akce */}
+                    <td className="px-4 py-2 text-right whitespace-nowrap relative">
+                        <div className="flex items-center justify-end gap-3">
+                            <StatusMenu 
+                                currentStatus={row.status} 
+                                onSelect={(newStatus) => onStatusChange(row.docId, row.rowIndex, newStatus)}
+                            />
+                            
+                            <button 
                                 onClick={() => onViewClick(row.originalDoc)}
-                                title="Zobrazit originální dokument"
-                                className="text-blue-600 hover:text-blue-800 p-1"
-                             >
-                                <ArrowRight size={16} />
-                             </button>
-                             <button 
-                                onClick={() => onDeleteClick(row.originalDoc.id)}
-                                title="Smazat dokument"
-                                className="text-red-400 hover:text-red-600 p-1"
-                             >
-                                <Trash2 size={16} />
-                             </button>
+                                title="Zobrazit originál"
+                                className="text-slate-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50 transition-colors"
+                            >
+                                <Eye size={18} />
+                            </button>
                         </div>
                     </td>
                   </tr>
@@ -337,9 +390,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
              <div className="bg-slate-50 p-3 text-xs text-slate-500 text-center border-t border-slate-200 flex justify-between items-center">
                 <span>Zobrazeno {filteredRows.length} řádků.</span>
                 {mergeDuplicates && (
-                    <span className="text-blue-600 flex items-center">
+                    <span className="text-blue-600 flex items-center bg-blue-50 px-2 py-1 rounded">
                         <Layers size={12} className="mr-1" />
-                        Duplicity jsou skryté
+                        Smart Merge aktivní
                     </span>
                 )}
             </div>

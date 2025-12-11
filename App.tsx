@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DocumentRecord, AppView } from './types';
+import { DocumentRecord, AppView, RowStatus } from './types';
 import { Dashboard } from './components/Dashboard';
 import { Scanner } from './components/Scanner';
 import { DetailView } from './components/DetailView';
@@ -49,6 +49,29 @@ const App: React.FC = () => {
     setView(AppView.DETAIL);
   };
 
+  // Funkce pro změnu stavu konkrétního řádku v konkrétním dokumentu
+  const handleRowStatusChange = (docId: string, rowIndex: number, newStatus: RowStatus) => {
+    setDocuments(prevDocs => {
+      return prevDocs.map(doc => {
+        if (doc.id !== docId) return doc;
+
+        // Vytvoříme hlubokou kopii dokumentu, abychom neupravovali state přímo
+        const newDoc = { ...doc };
+        newDoc.data = { ...doc.data };
+        newDoc.data.tableRows = [...doc.data.tableRows];
+        
+        // Upravíme konkrétní řádek
+        const existingRow = newDoc.data.tableRows[rowIndex];
+        newDoc.data.tableRows[rowIndex] = {
+            ...existingRow,
+            status: newStatus
+        };
+
+        return newDoc;
+      });
+    });
+  };
+
   const selectedDocument = documents.find(d => d.id === selectedDocId);
 
   return (
@@ -88,6 +111,7 @@ const App: React.FC = () => {
             onAddClick={() => setView(AppView.UPLOAD)}
             onDeleteClick={handleDelete}
             onViewClick={handleViewDoc}
+            onStatusChange={handleRowStatusChange}
           />
         )}
 
