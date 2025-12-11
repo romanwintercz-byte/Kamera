@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { DocumentRecord, RowStatus } from '../types';
-import { FileText, Calendar, Search, Plus, MapPin, Clock, Database, Layers, CheckCircle2, AlertTriangle, Ban, MoreHorizontal, Eye } from 'lucide-react';
+import { FileText, Calendar, Search, Plus, MapPin, Clock, Database, Layers, CheckCircle2, AlertTriangle, Ban, Eye, Activity, Hash, Ruler } from 'lucide-react';
 import { Button } from './Button';
 
 interface DashboardProps {
@@ -27,6 +27,33 @@ const findDateColumnIndex = (headers: string[]): number => {
     h.includes('termín') ||
     h.includes('date')
   );
+};
+
+// Helper to detect length/meters column index
+const findLengthColumnIndex = (headers: string[]): number => {
+  if (!headers) return -1;
+  const lowerHeaders = headers.map(h => h.toLowerCase());
+  return lowerHeaders.findIndex(h => 
+    h.includes('délka') || 
+    h.includes('delka') || 
+    h.includes('metr') || 
+    h.includes('metráž') ||
+    h.includes('length') ||
+    h === 'm' ||
+    h === 'bm'
+  );
+};
+
+// Helper to parse numeric value from string (e.g. "14,5 m" -> 14.5)
+const parseLengthValue = (str: string | undefined): number => {
+  if (!str) return 0;
+  // Replace comma with dot, remove non-numeric chars except dot
+  // We extract the first valid number sequence
+  const normalized = str.replace(',', '.');
+  const match = normalized.match(/[\d.]+/);
+  if (!match) return 0;
+  const val = parseFloat(match[0]);
+  return isNaN(val) ? 0 : val;
 };
 
 // --- Komponenta pro Status Menu ---
@@ -185,6 +212,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     ? filteredRows[0].originalDoc.data.tableHeaders 
     : (documents.length > 0 ? documents[0].data.tableHeaders : []);
 
+  // --- STATS CALCULATION ---
+  const stats = useMemo(() => {
+    const lengthColIdx = findLengthColumnIndex(displayHeaders);
+    
+    return filteredRows.reduce((acc, row) => {
+        // Count total rows
+        acc.count++;
+
+        // Calculate meters if column exists
+        if (lengthColIdx >= 0) {
+            const val = parseLengthValue(row.values[lengthColIdx]);
+            acc.totalMeters += val;
+            
+            if (row.status === RowStatus.UPLOADED) {
+                acc.uploadedMeters += val;
+            } else if (row.status === RowStatus.NEW || row.status === RowStatus.REVISION) {
+                acc.todoMeters += val;
+            }
+        }
+        return acc;
+    }, { totalMeters: 0, uploadedMeters: 0, todoMeters: 0, count: 0 });
+  }, [filteredRows, displayHeaders]);
+
+
   // --- Funkce pro určení tříd řádku podle stavu ---
   const getRowClasses = (status: RowStatus) => {
     const base = "transition-colors border-b border-slate-100 last:border-0";
@@ -303,6 +354,57 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                     </div>
                 </label>
             </div>
+        </div>
+      </div>
+
+      {/* STATISTICS CARDS */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* Total Length */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-200 relative overflow-hidden">
+            <div className="flex items-center justify-between mb-2 relative z-10">
+                <h3 className="text-sm font-semibold text-slate-500">Celková délka</h3>
+                <Ruler size={18} className="text-blue-500" />
+            </div>
+            <p className="text-2xl font-bold text-slate-800 relative z-10">
+                {stats.totalMeters.toLocaleString('cs-CZ', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} m
+            </p>
+            <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-blue-50 rounded-full opacity-50 z-0"></div>
+        </div>
+
+        {/* Uploaded (Done) */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-emerald-200 relative overflow-hidden">
+             <div className="flex items-center justify-between mb-2 relative z-10">
+                <h3 className="text-sm font-semibold text-emerald-600">Nahráno (GIS)</h3>
+                <CheckCircle2 size={18} className="text-emerald-500" />
+            </div>
+            <p className="text-2xl font-bold text-emerald-700 relative z-10">
+                {stats.uploadedMeters.toLocaleString('cs-CZ', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} m
+            </p>
+             <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-emerald-50 rounded-full opacity-50 z-0"></div>
+        </div>
+
+        {/* To Do / Revision */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-amber-200 relative overflow-hidden">
+            <div className="flex items-center justify-between mb-2 relative z-10">
+                <h3 className="text-sm font-semibold text-amber-600">K řešení</h3>
+                <Activity size={18} className="text-amber-500" />
+            </div>
+            <p className="text-2xl font-bold text-amber-700 relative z-10">
+                {stats.todoMeters.toLocaleString('cs-CZ', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} m
+            </p>
+             <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-amber-50 rounded-full opacity-50 z-0"></div>
+        </div>
+
+        {/* Count */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative overflow-hidden">
+            <div className="flex items-center justify-between mb-2 relative z-10">
+                <h3 className="text-sm font-semibold text-slate-500">Počet úseků</h3>
+                <Hash size={18} className="text-slate-400" />
+            </div>
+            <p className="text-2xl font-bold text-slate-800 relative z-10">
+                {stats.count}
+            </p>
+             <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-slate-50 rounded-full opacity-50 z-0"></div>
         </div>
       </div>
 
