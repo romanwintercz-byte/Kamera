@@ -1,33 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { DocumentRecord, AppView, RowStatus } from './types';
+import { DocumentRecord, AppView, RowStatus, MonthlyTargets } from './types';
 import { Dashboard } from './components/Dashboard';
 import { Scanner } from './components/Scanner';
 import { DetailView } from './components/DetailView';
 import { Database, Plus } from 'lucide-react';
 
 const STORAGE_KEY = 'pdf-db-documents';
+const TARGETS_KEY = 'pdf-db-targets';
 
 const App: React.FC = () => {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
+  const [targets, setTargets] = useState<MonthlyTargets>({});
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
-  // Load from LocalStorage
+  // Load documents
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
+    const storedDocs = localStorage.getItem(STORAGE_KEY);
+    if (storedDocs) {
       try {
-        setDocuments(JSON.parse(stored));
+        setDocuments(JSON.parse(storedDocs));
       } catch (e) {
         console.error("Failed to parse stored documents", e);
       }
     }
+    
+    // Load targets
+    const storedTargets = localStorage.getItem(TARGETS_KEY);
+    if (storedTargets) {
+      try {
+        setTargets(JSON.parse(storedTargets));
+      } catch (e) {
+        console.error("Failed to parse stored targets", e);
+      }
+    }
   }, []);
 
-  // Save to LocalStorage
+  // Save documents
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
   }, [documents]);
+
+  // Save targets
+  useEffect(() => {
+    localStorage.setItem(TARGETS_KEY, JSON.stringify(targets));
+  }, [targets]);
 
   const handleScanComplete = (newDoc: DocumentRecord) => {
     setDocuments(prev => [newDoc, ...prev]);
@@ -49,18 +66,15 @@ const App: React.FC = () => {
     setView(AppView.DETAIL);
   };
 
-  // Funkce pro změnu stavu konkrétního řádku v konkrétním dokumentu
   const handleRowStatusChange = (docId: string, rowIndex: number, newStatus: RowStatus) => {
     setDocuments(prevDocs => {
       return prevDocs.map(doc => {
         if (doc.id !== docId) return doc;
 
-        // Vytvoříme hlubokou kopii dokumentu, abychom neupravovali state přímo
         const newDoc = { ...doc };
         newDoc.data = { ...doc.data };
         newDoc.data.tableRows = [...doc.data.tableRows];
         
-        // Upravíme konkrétní řádek
         const existingRow = newDoc.data.tableRows[rowIndex];
         newDoc.data.tableRows[rowIndex] = {
             ...existingRow,
@@ -70,6 +84,10 @@ const App: React.FC = () => {
         return newDoc;
       });
     });
+  };
+
+  const handleTargetsUpdate = (newTargets: MonthlyTargets) => {
+    setTargets(newTargets);
   };
 
   const selectedDocument = documents.find(d => d.id === selectedDocId);
@@ -108,10 +126,12 @@ const App: React.FC = () => {
         {view === AppView.DASHBOARD && (
           <Dashboard 
             documents={documents} 
+            targets={targets}
             onAddClick={() => setView(AppView.UPLOAD)}
             onDeleteClick={handleDelete}
             onViewClick={handleViewDoc}
             onStatusChange={handleRowStatusChange}
+            onTargetsUpdate={handleTargetsUpdate}
           />
         )}
 

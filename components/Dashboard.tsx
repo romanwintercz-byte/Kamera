@@ -1,14 +1,18 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { DocumentRecord, RowStatus } from '../types';
-import { FileText, Calendar, Search, Plus, MapPin, Clock, Database, Layers, CheckCircle2, AlertTriangle, Ban, Eye, Activity, Hash, Ruler } from 'lucide-react';
+import { DocumentRecord, RowStatus, MonthlyTargets } from '../types';
+import { FileText, Calendar, Search, Plus, MapPin, Clock, Database, Layers, CheckCircle2, AlertTriangle, Ban, Eye, Activity, Hash, Ruler, Target, BarChart3, List } from 'lucide-react';
 import { Button } from './Button';
+import { PlanModal } from './PlanModal';
+import { StatisticsPanel } from './StatisticsPanel';
 
 interface DashboardProps {
   documents: DocumentRecord[];
+  targets: MonthlyTargets;
   onAddClick: () => void;
   onDeleteClick: (id: string) => void;
   onViewClick: (doc: DocumentRecord) => void;
   onStatusChange: (docId: string, rowIndex: number, status: RowStatus) => void;
+  onTargetsUpdate: (targets: MonthlyTargets) => void;
 }
 
 const MONTH_NAMES = [
@@ -47,8 +51,6 @@ const findLengthColumnIndex = (headers: string[]): number => {
 // Helper to parse numeric value from string (e.g. "14,5 m" -> 14.5)
 const parseLengthValue = (str: string | undefined): number => {
   if (!str) return 0;
-  // Replace comma with dot, remove non-numeric chars except dot
-  // We extract the first valid number sequence
   const normalized = str.replace(',', '.');
   const match = normalized.match(/[\d.]+/);
   if (!match) return 0;
@@ -64,7 +66,6 @@ const StatusMenu: React.FC<{
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Zavření při kliknutí mimo
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -116,12 +117,16 @@ const StatusMenu: React.FC<{
   );
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onDeleteClick, onViewClick, onStatusChange }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddClick, onDeleteClick, onViewClick, onStatusChange, onTargetsUpdate }) => {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [centerFilter, setCenterFilter] = React.useState<string>('all');
   const [yearFilter, setYearFilter] = React.useState<string>('all');
   const [monthFilter, setMonthFilter] = React.useState<string>('all');
   const [mergeDuplicates, setMergeDuplicates] = React.useState<boolean>(true);
+  
+  // Toggles
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'table' | 'stats'>('table');
 
   const allRows = useMemo(() => {
     const sortedDocs = [...documents].sort((a, b) => 
@@ -186,7 +191,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     return '';
   };
 
-  const centers = Array.from(new Set(documents.map(d => d.data.center))).filter(Boolean).sort();
+  const centers = Array.from(new Set(documents.map(d => d.data.center))).filter(c => c && c !== 'Neurčeno').sort();
   const years = Array.from(new Set(allRows.map(r => getYearFromRow(r.filterDate))))
     .filter(y => y && y.length === 4).sort().reverse();
 
@@ -217,14 +222,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     const lengthColIdx = findLengthColumnIndex(displayHeaders);
     
     return filteredRows.reduce((acc, row) => {
-        // Count total rows
         acc.count++;
-
-        // Calculate meters if column exists
         if (lengthColIdx >= 0) {
             const val = parseLengthValue(row.values[lengthColIdx]);
             acc.totalMeters += val;
-            
             if (row.status === RowStatus.UPLOADED) {
                 acc.uploadedMeters += val;
             } else if (row.status === RowStatus.NEW || row.status === RowStatus.REVISION) {
@@ -235,19 +236,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
     }, { totalMeters: 0, uploadedMeters: 0, todoMeters: 0, count: 0 });
   }, [filteredRows, displayHeaders]);
 
-
-  // --- Funkce pro určení tříd řádku podle stavu ---
   const getRowClasses = (status: RowStatus) => {
     const base = "transition-colors border-b border-slate-100 last:border-0";
     switch(status) {
-        case RowStatus.UPLOADED:
-            return `${base} bg-emerald-50/70 hover:bg-emerald-100/80`;
-        case RowStatus.REVISION:
-            return `${base} bg-amber-50/70 hover:bg-amber-100/80`;
-        case RowStatus.UNUSABLE:
-            return `${base} bg-red-50/70 hover:bg-red-100/80`;
-        default:
-            return `${base} hover:bg-blue-50`;
+        case RowStatus.UPLOADED: return `${base} bg-emerald-50/70 hover:bg-emerald-100/80`;
+        case RowStatus.REVISION: return `${base} bg-amber-50/70 hover:bg-amber-100/80`;
+        case RowStatus.UNUSABLE: return `${base} bg-red-50/70 hover:bg-red-100/80`;
+        default: return `${base} hover:bg-blue-50`;
     }
   };
 
@@ -260,6 +255,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
             Databáze prohlídek
         </h2>
         <div className="flex gap-2 w-full sm:w-auto">
+             <Button variant="secondary" onClick={() => setShowPlanModal(true)} className="w-full sm:w-auto">
+                <Target className="mr-2" size={20} />
+                Nastavit cíle
+             </Button>
              <Button onClick={onAddClick} className="w-full sm:w-auto">
                 <Plus className="mr-2" size={20} />
                 Nahrát PDF
@@ -350,14 +349,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
                     </div>
                     <div className="ml-3 text-sm font-medium text-slate-600 flex items-center">
                         <Layers size={16} className="mr-1.5 text-slate-400" />
-                        Sloučit duplicity
+                        Smart Merge
                     </div>
                 </label>
             </div>
         </div>
       </div>
 
-      {/* STATISTICS CARDS */}
+      {/* STATISTICS CARDS (Always visible) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Total Length */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-200 relative overflow-hidden">
@@ -407,99 +406,138 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, onAddClick, onD
              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-slate-50 rounded-full opacity-50 z-0"></div>
         </div>
       </div>
+      
+      {/* View Toggle (Table vs Stats) */}
+      <div className="flex justify-center border-b border-slate-200 mb-4">
+        <div className="flex space-x-6">
+            <button 
+                onClick={() => setActiveTab('table')}
+                className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center ${activeTab === 'table' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+                <List size={18} className="mr-2" />
+                Seznam dat
+            </button>
+            <button 
+                onClick={() => setActiveTab('stats')}
+                className={`pb-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center ${activeTab === 'stats' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+                <BarChart3 size={18} className="mr-2" />
+                Statistiky & Plán
+            </button>
+        </div>
+      </div>
 
-      {/* Main Data Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        {filteredRows.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">
-            <Database size={48} className="mx-auto text-slate-300 mb-4" />
-            <p className="text-lg font-medium">Žádná data k zobrazení.</p>
-            <p className="text-sm">Zkuste upravit filtry nebo nahrajte nový dokument.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto min-h-[400px]">
-            <table className="min-w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  {centerFilter === 'all' && (
-                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                        Středisko
-                    </th>
-                  )}
-                  
-                  {displayHeaders.map((header, idx) => (
-                    <th 
-                      key={idx} 
-                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
-                        header.toLowerCase().includes('datum') ? 'text-blue-700 bg-blue-50/50' : 'text-slate-700'
-                      }`}
-                    >
-                      {header}
-                    </th>
-                  ))}
-
-                  <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap w-48">
-                    Stav / Akce
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white">
-                {filteredRows.map((row) => (
-                  <tr key={row.id} className={getRowClasses(row.status)}>
-                    
+      {/* Content Area */}
+      {activeTab === 'table' ? (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+            {filteredRows.length === 0 ? (
+            <div className="p-12 text-center text-slate-500">
+                <Database size={48} className="mx-auto text-slate-300 mb-4" />
+                <p className="text-lg font-medium">Žádná data k zobrazení.</p>
+                <p className="text-sm">Zkuste upravit filtry nebo nahrajte nový dokument.</p>
+            </div>
+            ) : (
+            <div className="overflow-x-auto min-h-[400px]">
+                <table className="min-w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
                     {centerFilter === 'all' && (
-                        <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap font-medium">
-                            {row.originalDoc.data.center}
-                        </td>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                            Středisko
+                        </th>
                     )}
-
-                    {displayHeaders.map((header, colIdx) => (
-                        <td 
-                            key={colIdx} 
-                            className={`px-4 py-3 text-sm font-medium ${
-                                header.toLowerCase().includes('datum') ? 'text-blue-800 whitespace-nowrap font-bold' : 'text-slate-700'
-                            }`}
+                    
+                    {displayHeaders.map((header, idx) => (
+                        <th 
+                        key={idx} 
+                        className={`px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
+                            header.toLowerCase().includes('datum') ? 'text-blue-700 bg-blue-50/50' : 'text-slate-700'
+                        }`}
                         >
-                            {row.values[colIdx] || '-'}
-                        </td>
+                        {header}
+                        </th>
                     ))}
 
-                    {/* Stav a Akce */}
-                    <td className="px-4 py-2 text-right whitespace-nowrap relative">
-                        <div className="flex items-center justify-end gap-3">
-                            <StatusMenu 
-                                currentStatus={row.status} 
-                                onSelect={(newStatus) => onStatusChange(row.docId, row.rowIndex, newStatus)}
-                            />
-                            
-                            <button 
-                                onClick={() => onViewClick(row.originalDoc)}
-                                title="Zobrazit originál"
-                                className="text-slate-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50 transition-colors"
+                    <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap w-48">
+                        Stav / Akce
+                    </th>
+                    </tr>
+                </thead>
+                <tbody className="bg-white">
+                    {filteredRows.map((row) => (
+                    <tr key={row.id} className={getRowClasses(row.status)}>
+                        
+                        {centerFilter === 'all' && (
+                            <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap font-medium">
+                                {row.originalDoc.data.center}
+                            </td>
+                        )}
+
+                        {displayHeaders.map((header, colIdx) => (
+                            <td 
+                                key={colIdx} 
+                                className={`px-4 py-3 text-sm font-medium ${
+                                    header.toLowerCase().includes('datum') ? 'text-blue-800 whitespace-nowrap font-bold' : 'text-slate-700'
+                                }`}
                             >
-                                <Eye size={18} />
-                            </button>
-                        </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        
-        {filteredRows.length > 0 && (
-             <div className="bg-slate-50 p-3 text-xs text-slate-500 text-center border-t border-slate-200 flex justify-between items-center">
-                <span>Zobrazeno {filteredRows.length} řádků.</span>
-                {mergeDuplicates && (
-                    <span className="text-blue-600 flex items-center bg-blue-50 px-2 py-1 rounded">
-                        <Layers size={12} className="mr-1" />
-                        Smart Merge aktivní
-                    </span>
-                )}
+                                {row.values[colIdx] || '-'}
+                            </td>
+                        ))}
+
+                        {/* Stav a Akce */}
+                        <td className="px-4 py-2 text-right whitespace-nowrap relative">
+                            <div className="flex items-center justify-end gap-3">
+                                <StatusMenu 
+                                    currentStatus={row.status} 
+                                    onSelect={(newStatus) => onStatusChange(row.docId, row.rowIndex, newStatus)}
+                                />
+                                
+                                <button 
+                                    onClick={() => onViewClick(row.originalDoc)}
+                                    title="Zobrazit originál"
+                                    className="text-slate-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50 transition-colors"
+                                >
+                                    <Eye size={18} />
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    ))}
+                </tbody>
+                </table>
             </div>
-        )}
-      </div>
+            )}
+            
+            {filteredRows.length > 0 && (
+                <div className="bg-slate-50 p-3 text-xs text-slate-500 text-center border-t border-slate-200 flex justify-between items-center">
+                    <span>Zobrazeno {filteredRows.length} řádků.</span>
+                    {mergeDuplicates && (
+                        <span className="text-blue-600 flex items-center bg-blue-50 px-2 py-1 rounded">
+                            <Layers size={12} className="mr-1" />
+                            Smart Merge aktivní
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
+      ) : (
+          <StatisticsPanel 
+            documents={documents}
+            targets={targets}
+            yearFilter={yearFilter}
+            monthFilter={monthFilter}
+            mergeDuplicates={mergeDuplicates}
+          />
+      )}
+
+      {showPlanModal && (
+          <PlanModal 
+            centers={centers}
+            currentTargets={targets}
+            onSave={onTargetsUpdate}
+            onClose={() => setShowPlanModal(false)}
+          />
+      )}
     </div>
   );
 };

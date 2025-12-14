@@ -34,3 +34,8 @@ export enum AppView {
   UPLOAD = 'UPLOAD',
   DETAIL = 'DETAIL'
 }
+
+// Mapování: Název střediska -> Měsíční cíl v metrech
+export interface MonthlyTargets {
+  [centerName: string]: number;
+}
