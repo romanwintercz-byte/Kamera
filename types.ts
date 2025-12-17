@@ -7,7 +7,8 @@ export enum RowStatus {
 
 export interface TableRow {
   values: string[];
-  status?: RowStatus; // Volitelné, protože starší data to nemají
+  status?: RowStatus;
+  requiresGisFix?: boolean; // NOVÉ: Příznak, že data vyžadovala úpravu v GIS (nezávislé na stavu)
 }
 
 export interface ExtractedData {

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { DocumentRecord, MonthlyTargets, RowStatus } from '../types';
-import { Ruler, TrendingUp, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Ruler, TrendingUp, AlertCircle, CheckCircle2, PieChart, Wrench, Ban, Clock } from 'lucide-react';
 
 interface StatisticsPanelProps {
   documents: DocumentRecord[];
@@ -46,17 +46,24 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
   mergeDuplicates 
 }) => {
 
-  const stats = useMemo(() => {
+  const { data, statusCounts } = useMemo(() => {
     // 1. Prepare data structure: Center -> Month -> Meters
     const data: Record<string, Record<number, number>> = {};
+    const statusCounts: Record<string, { total: number, uploaded: number, gisIssues: number }> = {}; 
     const seenSignatures = new Set<string>();
 
-    // Init centers from targets or docs to ensure all show up
+    // Init centers
     const allCenters = new Set<string>([...Object.keys(targets), ...documents.map(d => d.data.center)]);
     allCenters.forEach(c => {
         if (!c || c === 'Neurčeno') return;
         data[c] = {};
         for(let m=1; m<=12; m++) data[c][m] = 0;
+        
+        statusCounts[c] = {
+            total: 0,
+            uploaded: 0,
+            gisIssues: 0
+        };
     });
 
     documents.forEach(doc => {
@@ -65,7 +72,6 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
 
         const dateColIdx = findDateColumnIndex(doc.data.tableHeaders);
         const lenColIdx = findLengthColumnIndex(doc.data.tableHeaders);
-        if (lenColIdx === -1) return;
 
         doc.data.tableRows.forEach((row, idx) => {
             // Smart Merge Check
@@ -99,31 +105,38 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
 
             // Apply Year Filter
             if (yearFilter !== 'all' && year.toString() !== yearFilter) return;
+            // Apply Month Filter (Only for status counts to match view context)
+             if (monthFilter !== 'all' && month.toString() !== monthFilter) return;
 
-            // Add meters
-            const meters = parseLengthValue(row.values[lenColIdx]);
-            
-            if (!data[center]) { // Should be init above but just in case
-                data[center] = {};
-                for(let m=1; m<=12; m++) data[center][m] = 0;
+            // --- METERS CALCULATION (Only if length column exists) ---
+            if (lenColIdx >= 0) {
+                const meters = parseLengthValue(row.values[lenColIdx]);
+                if (!data[center]) {
+                    data[center] = {};
+                    for(let m=1; m<=12; m++) data[center][m] = 0;
+                }
+                data[center][month] = (data[center][month] || 0) + meters;
             }
-            data[center][month] = (data[center][month] || 0) + meters;
+
+            // --- STATUS & QUALITY COUNTING ---
+            if (statusCounts[center]) {
+                statusCounts[center].total++;
+                if (row.status === RowStatus.UPLOADED) {
+                    statusCounts[center].uploaded++;
+                }
+                if (row.requiresGisFix) {
+                    statusCounts[center].gisIssues++;
+                }
+            }
         });
     });
 
-    return data;
-  }, [documents, targets, yearFilter, mergeDuplicates]);
+    return { data, statusCounts };
+  }, [documents, targets, yearFilter, monthFilter, mergeDuplicates]);
 
-  const activeCenters = Object.keys(stats).sort();
+  const activeCenters = Object.keys(data).sort();
 
   // Helper to get plan
-  const getPlan = (center: string, monthIdx: number): number => {
-      // monthIdx 1-12
-      // If filtering by specific month, plan is simple target
-      // If filtering by year, plan is simple target * 1 (for that month cell)
-      return targets[center] || 0;
-  };
-
   const getFilteredPlanTotal = (center: string) => {
      const monthlyTarget = targets[center] || 0;
      if (monthFilter !== 'all') return monthlyTarget;
@@ -133,10 +146,10 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
   
   const getFilteredActualTotal = (center: string) => {
     if (monthFilter !== 'all') {
-        return stats[center][parseInt(monthFilter)] || 0;
+        return data[center][parseInt(monthFilter)] || 0;
     }
     // Sum all months
-    return Object.values(stats[center]).reduce((a, b) => a + b, 0);
+    return Object.values(data[center]).reduce((a: number, b: number) => a + b, 0);
   };
 
   return (
@@ -190,12 +203,65 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
         </div>
       </div>
 
-      {/* 2. SECTION: Monthly Matrix (Only if looking at all months) */}
+       {/* 2. SECTION: Quality & Status Statistics (NEW) */}
+       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+         <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+            <PieChart className="mr-2 text-blue-600" size={20} />
+            Kvalita dat a stavy
+        </h3>
+        <div className="overflow-x-auto">
+             <table className="min-w-full text-sm">
+                <thead>
+                    <tr className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                        <th className="p-3 text-left font-semibold">Středisko</th>
+                        <th className="p-3 text-right font-semibold">Celkem záznamů</th>
+                        <th className="p-3 text-right font-semibold text-emerald-600">Hotovo (Nahráno)</th>
+                        <th className="p-3 text-right font-semibold text-orange-600">Chybovost (GIS Úpravy)</th>
+                        <th className="p-3 text-left font-semibold w-1/3">Podíl chybovosti</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                     {activeCenters.map(center => {
+                         const stats = statusCounts[center] || { total: 0, uploaded: 0, gisIssues: 0 };
+                         if (stats.total === 0) return null;
+
+                         const pctGisIssues = (stats.gisIssues / stats.total) * 100;
+                         const pctUploaded = (stats.uploaded / stats.total) * 100;
+
+                         return (
+                             <tr key={center} className="hover:bg-slate-50">
+                                 <td className="p-3 font-medium text-slate-700">{center}</td>
+                                 <td className="p-3 text-right text-slate-600 font-medium">
+                                     {stats.total}
+                                 </td>
+                                 <td className="p-3 text-right font-medium text-emerald-600">
+                                     {stats.uploaded} <span className="text-xs text-slate-400">({pctUploaded.toFixed(0)}%)</span>
+                                 </td>
+                                 <td className="p-3 text-right font-bold text-orange-700">
+                                     {stats.gisIssues}
+                                 </td>
+                                 <td className="p-3">
+                                     <div className="flex items-center gap-2">
+                                        <div className="flex-1 h-3 rounded-full overflow-hidden bg-slate-100">
+                                            <div className="bg-orange-500 h-full" style={{ width: `${pctGisIssues}%` }} title="Chybovost" />
+                                        </div>
+                                        <span className="text-xs font-bold text-orange-600 w-10 text-right">{pctGisIssues.toFixed(1)}%</span>
+                                     </div>
+                                 </td>
+                             </tr>
+                         );
+                     })}
+                </tbody>
+             </table>
+        </div>
+       </div>
+
+      {/* 3. SECTION: Monthly Matrix (Only if looking at all months) */}
       {monthFilter === 'all' && (
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 overflow-hidden">
          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
             <TrendingUp className="mr-2 text-blue-600" size={20} />
-            Měsíční detail
+            Měsíční detail (Metráž)
         </h3>
         
         <div className="overflow-x-auto">
@@ -211,7 +277,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                     {activeCenters.map(center => {
-                         const yearlyTotal = Object.values(stats[center]).reduce((a, b) => a + b, 0);
+                         const yearlyTotal = Object.values(data[center]).reduce((a: number, b: number) => a + b, 0);
                          const target = targets[center] || 0;
 
                          return (
@@ -219,7 +285,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                                 <td className="p-3 font-medium text-slate-700">{center}</td>
                                 {MONTH_NAMES_SHORT.map((_, idx) => {
                                     const monthNum = idx + 1;
-                                    const val = stats[center][monthNum];
+                                    const val = data[center][monthNum];
                                     const metTarget = target > 0 && val >= target;
                                     const closeToTarget = target > 0 && val >= (target * 0.8);
                                     
@@ -228,7 +294,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
 
                                     return (
                                         <td key={idx} className={`p-2 text-right ${textColor}`}>
-                                            {val > 0 ? (val / 1000).toFixed(1) + 'k' : '-'}
+                                            {val > 0 ? Number(val / 1000).toFixed(1) + 'k' : '-'}
                                         </td>
                                     );
                                 })}

@@ -86,6 +86,26 @@ const App: React.FC = () => {
     });
   };
 
+  const handleRowGisFixToggle = (docId: string, rowIndex: number) => {
+    setDocuments(prevDocs => {
+      return prevDocs.map(doc => {
+        if (doc.id !== docId) return doc;
+
+        const newDoc = { ...doc };
+        newDoc.data = { ...doc.data };
+        newDoc.data.tableRows = [...doc.data.tableRows];
+        
+        const existingRow = newDoc.data.tableRows[rowIndex];
+        newDoc.data.tableRows[rowIndex] = {
+            ...existingRow,
+            requiresGisFix: !existingRow.requiresGisFix
+        };
+
+        return newDoc;
+      });
+    });
+  };
+
   const handleTargetsUpdate = (newTargets: MonthlyTargets) => {
     setTargets(newTargets);
   };
@@ -131,6 +151,7 @@ const App: React.FC = () => {
             onDeleteClick={handleDelete}
             onViewClick={handleViewDoc}
             onStatusChange={handleRowStatusChange}
+            onGisFixToggle={handleRowGisFixToggle}
             onTargetsUpdate={handleTargetsUpdate}
           />
         )}
