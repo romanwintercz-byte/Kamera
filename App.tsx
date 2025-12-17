@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DocumentRecord, AppView, RowStatus, MonthlyTargets } from './types';
+import { DocumentRecord, AppView, RowStatus, AnnualTargets } from './types';
 import { Dashboard } from './components/Dashboard';
 import { Scanner } from './components/Scanner';
 import { DetailView } from './components/DetailView';
@@ -10,7 +10,7 @@ const TARGETS_KEY = 'pdf-db-targets';
 
 const App: React.FC = () => {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
-  const [targets, setTargets] = useState<MonthlyTargets>({});
+  const [targets, setTargets] = useState<AnnualTargets>({});
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
@@ -132,7 +132,7 @@ const App: React.FC = () => {
     });
   };
 
-  const handleTargetsUpdate = (newTargets: MonthlyTargets) => {
+  const handleTargetsUpdate = (newTargets: AnnualTargets) => {
     setTargets(newTargets);
   };
 

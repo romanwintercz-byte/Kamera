@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { DocumentRecord, RowStatus, MonthlyTargets } from '../types';
+import { DocumentRecord, RowStatus, AnnualTargets } from '../types';
 import { FileText, Calendar, Search, Plus, MapPin, Clock, Database, Layers, CheckCircle2, AlertTriangle, Ban, Eye, Activity, Hash, Ruler, Target, BarChart3, List, Wrench, CheckSquare, X } from 'lucide-react';
 import { Button } from './Button';
 import { PlanModal } from './PlanModal';
@@ -7,14 +7,14 @@ import { StatisticsPanel } from './StatisticsPanel';
 
 interface DashboardProps {
   documents: DocumentRecord[];
-  targets: MonthlyTargets;
+  targets: AnnualTargets;
   onAddClick: () => void;
   onDeleteClick: (id: string) => void;
   onViewClick: (doc: DocumentRecord) => void;
   onStatusChange: (docId: string, rowIndex: number, status: RowStatus) => void;
   onBulkStatusChange: (items: { docId: string, rowIndex: number }[], status: RowStatus) => void;
   onGisFixToggle: (docId: string, rowIndex: number) => void;
-  onTargetsUpdate: (targets: MonthlyTargets) => void;
+  onTargetsUpdate: (targets: AnnualTargets) => void;
 }
 
 interface DashboardRow {
@@ -259,12 +259,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
     
     // Convert selected IDs to {docId, rowIndex} array
     const itemsToUpdate: {docId: string, rowIndex: number}[] = [];
-    
-    // We need to look up details for each selected ID. 
-    // filteredRows contains the necessary mapping.
-    // If a row is hidden by filter but was previously selected, it won't be in filteredRows.
-    // We should probably iterate allRows to be safe, or just filteredRows if we assume selection clears on filter change (it doesn't currently).
-    // Better to map from allRows to find matches.
     
     allRows.forEach(row => {
         if (selectedRowIds.has(row.id)) {

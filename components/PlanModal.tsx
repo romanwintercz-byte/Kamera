@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
-import { MonthlyTargets } from '../types';
+import { AnnualTargets } from '../types';
 import { Button } from './Button';
 import { X, Target } from 'lucide-react';
 
 interface PlanModalProps {
   centers: string[];
-  currentTargets: MonthlyTargets;
-  onSave: (targets: MonthlyTargets) => void;
+  currentTargets: AnnualTargets;
+  onSave: (targets: AnnualTargets) => void;
   onClose: () => void;
 }
 
 export const PlanModal: React.FC<PlanModalProps> = ({ centers, currentTargets, onSave, onClose }) => {
-  const [tempTargets, setTempTargets] = useState<MonthlyTargets>(currentTargets);
+  const [tempTargets, setTempTargets] = useState<AnnualTargets>(currentTargets);
 
   const handleChange = (center: string, value: string) => {
     const numValue = parseFloat(value);
@@ -32,7 +32,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({ centers, currentTargets, o
         <div className="flex items-center justify-between p-6 border-b border-slate-100">
           <h2 className="text-xl font-bold text-slate-800 flex items-center">
             <Target className="mr-2 text-blue-600" />
-            Nastavení cílů
+            Nastavení ročních cílů
           </h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
             <X size={24} />
@@ -41,7 +41,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({ centers, currentTargets, o
         
         <div className="p-6 max-h-[60vh] overflow-y-auto">
           <p className="text-sm text-slate-500 mb-6">
-            Zadejte cílovou měsíční metráž pro každé středisko. Tato hodnota se použije pro výpočet plnění plánu ve statistikách.
+            Zadejte <strong>celkový roční plán</strong> (v metrech) pro každé středisko. V měsíčních přehledech se tento plán automaticky rozpočítá (děleno 12).
           </p>
 
           <div className="space-y-4">
@@ -57,7 +57,7 @@ export const PlanModal: React.FC<PlanModalProps> = ({ centers, currentTargets, o
                     <input
                         type="number"
                         min="0"
-                        step="100"
+                        step="1000"
                         value={tempTargets[center] || ''}
                         onChange={(e) => handleChange(center, e.target.value)}
                         placeholder="0"

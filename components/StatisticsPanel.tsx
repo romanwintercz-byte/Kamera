@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
-import { DocumentRecord, MonthlyTargets, RowStatus } from '../types';
+import { DocumentRecord, AnnualTargets, RowStatus } from '../types';
 import { Ruler, TrendingUp, AlertCircle, CheckCircle2, PieChart, Wrench, Ban, Clock } from 'lucide-react';
 
 interface StatisticsPanelProps {
   documents: DocumentRecord[];
-  targets: MonthlyTargets;
+  targets: AnnualTargets;
   yearFilter: string; // 'all' or specific year like '2023'
   monthFilter: string; // 'all' or '1'-'12'
   mergeDuplicates: boolean;
@@ -137,11 +137,17 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
   const activeCenters = Object.keys(data).sort();
 
   // Helper to get plan
+  // Logic Changed: targets[center] is now ANNUAL target
   const getFilteredPlanTotal = (center: string) => {
-     const monthlyTarget = targets[center] || 0;
-     if (monthFilter !== 'all') return monthlyTarget;
-     // If all months selected, plan is 12 * monthly target
-     return monthlyTarget * 12;
+     const annualTarget = targets[center] || 0;
+     
+     // If looking at a specific month, the plan is roughly annual / 12
+     if (monthFilter !== 'all') {
+         return annualTarget / 12;
+     }
+     
+     // If looking at "all" months (year view), return the full annual target
+     return annualTarget;
   };
   
   const getFilteredActualTotal = (center: string) => {
@@ -182,11 +188,11 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                         <div className="space-y-1 mb-3">
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500">Realita:</span>
-                                <span className="font-semibold text-slate-900">{actual.toLocaleString('cs-CZ')} m</span>
+                                <span className="font-semibold text-slate-900">{actual.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} m</span>
                             </div>
                             <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Plán:</span>
-                                <span className="font-medium text-slate-600">{plan.toLocaleString('cs-CZ')} m</span>
+                                <span className="text-slate-500">Plán ({monthFilter === 'all' ? 'rok' : 'měsíc'}):</span>
+                                <span className="font-medium text-slate-600">{plan.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} m</span>
                             </div>
                         </div>
 
@@ -278,7 +284,8 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                 <tbody className="divide-y divide-slate-100">
                     {activeCenters.map(center => {
                          const yearlyTotal = Object.values(data[center]).reduce((a: number, b: number) => a + b, 0);
-                         const target = targets[center] || 0;
+                         const annualTarget = targets[center] || 0;
+                         const monthlyTarget = annualTarget / 12; // Average monthly target
 
                          return (
                             <tr key={center} className="hover:bg-blue-50/30">
@@ -286,8 +293,10 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                                 {MONTH_NAMES_SHORT.map((_, idx) => {
                                     const monthNum = idx + 1;
                                     const val = data[center][monthNum];
-                                    const metTarget = target > 0 && val >= target;
-                                    const closeToTarget = target > 0 && val >= (target * 0.8);
+                                    
+                                    // Porovnání s měsíčním průměrem (roční cíl / 12)
+                                    const metTarget = monthlyTarget > 0 && val >= monthlyTarget;
+                                    const closeToTarget = monthlyTarget > 0 && val >= (monthlyTarget * 0.8);
                                     
                                     let textColor = "text-slate-400"; // Empty
                                     if (val > 0) textColor = metTarget ? "text-emerald-600 font-bold" : (closeToTarget ? "text-amber-600" : "text-red-600");
@@ -308,7 +317,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
             </table>
         </div>
         <div className="mt-2 text-xs text-slate-400 text-right">
-            * Hodnoty v tabulce jsou v tisících metrů (k). Zelená = Splněn měsíční cíl.
+            * Hodnoty v tabulce jsou v tisících metrů (k). Zelená = Splněn měsíční průměr (roční cíl / 12).
         </div>
       </div>
       )}
