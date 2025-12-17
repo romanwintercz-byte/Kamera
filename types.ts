@@ -36,7 +36,9 @@ export enum AppView {
   DETAIL = 'DETAIL'
 }
 
-// Mapování: Název střediska -> ROČNÍ cíl v metrech
+// Mapování: Rok -> { Název střediska -> ROČNÍ cíl v metrech }
 export interface AnnualTargets {
-  [centerName: string]: number;
+  [year: string]: {
+    [centerName: string]: number;
+  };
 }

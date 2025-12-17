@@ -52,8 +52,14 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
     const statusCounts: Record<string, { total: number, uploaded: number, gisIssues: number }> = {}; 
     const seenSignatures = new Set<string>();
 
-    // Init centers
-    const allCenters = new Set<string>([...Object.keys(targets), ...documents.map(d => d.data.center)]);
+    // Init centers from documents AND targets (to show targets even if no docs yet)
+    const centersFromTargets = new Set<string>();
+    Object.values(targets).forEach(yearData => {
+        Object.keys(yearData).forEach(c => centersFromTargets.add(c));
+    });
+    
+    const allCenters = new Set<string>([...centersFromTargets, ...documents.map(d => d.data.center)]);
+    
     allCenters.forEach(c => {
         if (!c || c === 'Neurčeno') return;
         data[c] = {};
@@ -136,17 +142,25 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
 
   const activeCenters = Object.keys(data).sort();
 
-  // Helper to get plan
-  // Logic Changed: targets[center] is now ANNUAL target
+  // Helper to get plan based on year filter
   const getFilteredPlanTotal = (center: string) => {
-     const annualTarget = targets[center] || 0;
+     let annualTarget = 0;
+
+     if (yearFilter !== 'all') {
+         // Specific year
+         annualTarget = targets[yearFilter]?.[center] || 0;
+     } else {
+         // Sum all years available in targets for this center (approximation for "all time")
+         Object.keys(targets).forEach(y => {
+             annualTarget += (targets[y]?.[center] || 0);
+         });
+     }
      
      // If looking at a specific month, the plan is roughly annual / 12
      if (monthFilter !== 'all') {
          return annualTarget / 12;
      }
      
-     // If looking at "all" months (year view), return the full annual target
      return annualTarget;
   };
   
@@ -166,7 +180,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
         <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
             <Ruler className="mr-2 text-blue-600" size={20} />
             Přehled plnění plánu podle středisek
-            {yearFilter !== 'all' && <span className="ml-2 text-slate-400 font-normal">({yearFilter})</span>}
+            {yearFilter !== 'all' ? <span className="ml-2 text-slate-400 font-normal">({yearFilter})</span> : <span className="ml-2 text-slate-400 font-normal">(všechny roky)</span>}
         </h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -284,7 +298,19 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                 <tbody className="divide-y divide-slate-100">
                     {activeCenters.map(center => {
                          const yearlyTotal = Object.values(data[center]).reduce((a: number, b: number) => a + b, 0);
-                         const annualTarget = targets[center] || 0;
+                         
+                         // Determine plan for comparison
+                         let annualTarget = 0;
+                         if (yearFilter !== 'all') {
+                             annualTarget = targets[yearFilter]?.[center] || 0;
+                         } else {
+                             // If multiple years selected, taking "current year" as baseline or just 0 to avoid confusion
+                             // Better: Just use 0 or don't color code if "all" years.
+                             // For now, let's try to grab current year or just 0.
+                             const currentYear = new Date().getFullYear().toString();
+                             annualTarget = targets[currentYear]?.[center] || 0;
+                         }
+                         
                          const monthlyTarget = annualTarget / 12; // Average monthly target
 
                          return (
@@ -295,11 +321,13 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                                     const val = data[center][monthNum];
                                     
                                     // Porovnání s měsíčním průměrem (roční cíl / 12)
+                                    // Color coding only makes sense if we have a specific year target or using a baseline
                                     const metTarget = monthlyTarget > 0 && val >= monthlyTarget;
                                     const closeToTarget = monthlyTarget > 0 && val >= (monthlyTarget * 0.8);
                                     
                                     let textColor = "text-slate-400"; // Empty
                                     if (val > 0) textColor = metTarget ? "text-emerald-600 font-bold" : (closeToTarget ? "text-amber-600" : "text-red-600");
+                                    if (yearFilter === 'all' && val > 0) textColor = "text-slate-700 font-medium"; // Disable coloring for aggregate view to avoid confusion
 
                                     return (
                                         <td key={idx} className={`p-2 text-right ${textColor}`}>
@@ -317,7 +345,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
             </table>
         </div>
         <div className="mt-2 text-xs text-slate-400 text-right">
-            * Hodnoty v tabulce jsou v tisících metrů (k). Zelená = Splněn měsíční průměr (roční cíl / 12).
+            * Hodnoty v tabulce jsou v tisících metrů (k). {yearFilter !== 'all' && "Zelená = Splněn měsíční průměr."}
         </div>
       </div>
       )}

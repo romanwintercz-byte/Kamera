@@ -29,7 +29,19 @@ const App: React.FC = () => {
     const storedTargets = localStorage.getItem(TARGETS_KEY);
     if (storedTargets) {
       try {
-        setTargets(JSON.parse(storedTargets));
+        const parsed = JSON.parse(storedTargets);
+        
+        // Jednoduchá migrace starého formátu { "Středisko": 1000 } na nový { "2024": { "Středisko": 1000 } }
+        // Zjistíme, jestli hodnoty jsou čísla (starý formát)
+        const isOldFormat = Object.values(parsed).some(val => typeof val === 'number');
+        
+        if (isOldFormat) {
+            const currentYear = new Date().getFullYear().toString();
+            // @ts-ignore - dočasně ignorujeme typ pro migraci
+            setTargets({ [currentYear]: parsed });
+        } else {
+            setTargets(parsed);
+        }
       } catch (e) {
         console.error("Failed to parse stored targets", e);
       }

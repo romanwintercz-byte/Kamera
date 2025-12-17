@@ -715,6 +715,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
             currentTargets={targets}
             onSave={onTargetsUpdate}
             onClose={() => setShowPlanModal(false)}
+            initialYear={yearFilter}
           />
       )}
     </div>
