@@ -86,6 +86,32 @@ const App: React.FC = () => {
     });
   };
 
+  const handleBulkStatusChange = (items: { docId: string, rowIndex: number }[], newStatus: RowStatus) => {
+    setDocuments(prevDocs => {
+      return prevDocs.map(doc => {
+        // Zjistíme, jestli se tento dokument má updatovat
+        const updatesForDoc = items.filter(item => item.docId === doc.id);
+        
+        if (updatesForDoc.length === 0) return doc;
+
+        const newDoc = { ...doc };
+        newDoc.data = { ...doc.data };
+        newDoc.data.tableRows = [...doc.data.tableRows];
+
+        updatesForDoc.forEach(update => {
+            if (newDoc.data.tableRows[update.rowIndex]) {
+                newDoc.data.tableRows[update.rowIndex] = {
+                    ...newDoc.data.tableRows[update.rowIndex],
+                    status: newStatus
+                };
+            }
+        });
+
+        return newDoc;
+      });
+    });
+  };
+
   const handleRowGisFixToggle = (docId: string, rowIndex: number) => {
     setDocuments(prevDocs => {
       return prevDocs.map(doc => {
@@ -151,6 +177,7 @@ const App: React.FC = () => {
             onDeleteClick={handleDelete}
             onViewClick={handleViewDoc}
             onStatusChange={handleRowStatusChange}
+            onBulkStatusChange={handleBulkStatusChange}
             onGisFixToggle={handleRowGisFixToggle}
             onTargetsUpdate={handleTargetsUpdate}
           />

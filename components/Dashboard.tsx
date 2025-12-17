@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { DocumentRecord, RowStatus, MonthlyTargets } from '../types';
-import { FileText, Calendar, Search, Plus, MapPin, Clock, Database, Layers, CheckCircle2, AlertTriangle, Ban, Eye, Activity, Hash, Ruler, Target, BarChart3, List, Wrench } from 'lucide-react';
+import { FileText, Calendar, Search, Plus, MapPin, Clock, Database, Layers, CheckCircle2, AlertTriangle, Ban, Eye, Activity, Hash, Ruler, Target, BarChart3, List, Wrench, CheckSquare, X } from 'lucide-react';
 import { Button } from './Button';
 import { PlanModal } from './PlanModal';
 import { StatisticsPanel } from './StatisticsPanel';
@@ -12,6 +12,7 @@ interface DashboardProps {
   onDeleteClick: (id: string) => void;
   onViewClick: (doc: DocumentRecord) => void;
   onStatusChange: (docId: string, rowIndex: number, status: RowStatus) => void;
+  onBulkStatusChange: (items: { docId: string, rowIndex: number }[], status: RowStatus) => void;
   onGisFixToggle: (docId: string, rowIndex: number) => void;
   onTargetsUpdate: (targets: MonthlyTargets) => void;
 }
@@ -129,13 +130,16 @@ const StatusMenu: React.FC<{
   );
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddClick, onDeleteClick, onViewClick, onStatusChange, onGisFixToggle, onTargetsUpdate }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddClick, onDeleteClick, onViewClick, onStatusChange, onBulkStatusChange, onGisFixToggle, onTargetsUpdate }) => {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [centerFilter, setCenterFilter] = React.useState<string>('all');
   const [yearFilter, setYearFilter] = React.useState<string>('all');
   const [monthFilter, setMonthFilter] = React.useState<string>('all');
   const [mergeDuplicates, setMergeDuplicates] = React.useState<boolean>(true);
   
+  // Selection State
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+
   // Toggles
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'table' | 'stats'>('table');
@@ -230,6 +234,54 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
     ? filteredRows[0].originalDoc.data.tableHeaders 
     : (documents.length > 0 ? documents[0].data.tableHeaders : []);
 
+  // --- SELECTION HANDLERS ---
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+        const allIds = new Set(filteredRows.map(r => r.id));
+        setSelectedRowIds(allIds);
+    } else {
+        setSelectedRowIds(new Set());
+    }
+  };
+
+  const handleSelectRow = (id: string) => {
+    const newSelected = new Set(selectedRowIds);
+    if (newSelected.has(id)) {
+        newSelected.delete(id);
+    } else {
+        newSelected.add(id);
+    }
+    setSelectedRowIds(newSelected);
+  };
+
+  const handleBulkAction = (status: RowStatus) => {
+    if (selectedRowIds.size === 0) return;
+    
+    // Convert selected IDs to {docId, rowIndex} array
+    const itemsToUpdate: {docId: string, rowIndex: number}[] = [];
+    
+    // We need to look up details for each selected ID. 
+    // filteredRows contains the necessary mapping.
+    // If a row is hidden by filter but was previously selected, it won't be in filteredRows.
+    // We should probably iterate allRows to be safe, or just filteredRows if we assume selection clears on filter change (it doesn't currently).
+    // Better to map from allRows to find matches.
+    
+    allRows.forEach(row => {
+        if (selectedRowIds.has(row.id)) {
+            itemsToUpdate.push({
+                docId: row.docId,
+                rowIndex: row.rowIndex
+            });
+        }
+    });
+
+    onBulkStatusChange(itemsToUpdate, status);
+    setSelectedRowIds(new Set()); // Clear selection after action
+  };
+
+  const isAllSelected = filteredRows.length > 0 && filteredRows.every(r => selectedRowIds.has(r.id));
+  const isIndeterminate = selectedRowIds.size > 0 && !isAllSelected;
+
   // --- STATS CALCULATION ---
   const stats = useMemo(() => {
     const lengthColIdx = findLengthColumnIndex(displayHeaders);
@@ -237,7 +289,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
     return filteredRows.reduce((acc, row) => {
         acc.count++;
         
-        // Zde je změna: počítáme "requiresGisFix" flag, nikoliv "RowStatus.REVISION"
         if (row.requiresGisFix) {
             acc.gisFixCount++;
         }
@@ -257,18 +308,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
 
   const revisionPercentage = stats.count > 0 ? (stats.gisFixCount / stats.count) * 100 : 0;
 
-  const getRowClasses = (status: RowStatus) => {
-    const base = "transition-colors border-b border-slate-100 last:border-0";
-    switch(status) {
-        case RowStatus.UPLOADED: return `${base} bg-emerald-50/70 hover:bg-emerald-100/80`;
-        case RowStatus.REVISION: return `${base} bg-orange-50/70 hover:bg-orange-100/80`;
-        case RowStatus.UNUSABLE: return `${base} bg-red-50/70 hover:bg-red-100/80`;
-        default: return `${base} hover:bg-blue-50`;
+  const getRowClasses = (status: RowStatus, isSelected: boolean) => {
+    let base = "transition-colors border-b border-slate-100 last:border-0";
+    if (isSelected) base += " bg-blue-50/80"; // Highlight selected
+    else {
+        switch(status) {
+            case RowStatus.UPLOADED: base += " bg-emerald-50/70 hover:bg-emerald-100/80"; break;
+            case RowStatus.REVISION: base += " bg-orange-50/70 hover:bg-orange-100/80"; break;
+            case RowStatus.UNUSABLE: base += " bg-red-50/70 hover:bg-red-100/80"; break;
+            default: base += " hover:bg-blue-50";
+        }
     }
+    return base;
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20 relative">
       {/* Top Action Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 gap-4">
         <h2 className="text-xl font-bold text-slate-800 flex items-center">
@@ -479,6 +534,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
                 <table className="min-w-full text-left">
                 <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
+                    <th className="px-4 py-3 w-10">
+                         <div className="flex items-center">
+                            <input 
+                                type="checkbox"
+                                className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                checked={isAllSelected}
+                                ref={input => {
+                                    if (input) input.indeterminate = isIndeterminate;
+                                }}
+                                onChange={handleSelectAll}
+                            />
+                        </div>
+                    </th>
                     {centerFilter === 'all' && (
                         <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                             Středisko
@@ -507,60 +575,73 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
                     </tr>
                 </thead>
                 <tbody className="bg-white">
-                    {filteredRows.map((row) => (
-                    <tr key={row.id} className={getRowClasses(row.status)}>
-                        
-                        {centerFilter === 'all' && (
-                            <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap font-medium">
-                                {row.originalDoc.data.center}
+                    {filteredRows.map((row) => {
+                        const isSelected = selectedRowIds.has(row.id);
+                        return (
+                        <tr key={row.id} className={getRowClasses(row.status, isSelected)}>
+                            <td className="px-4 py-3">
+                                <div className="flex items-center">
+                                    <input 
+                                        type="checkbox"
+                                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                        checked={isSelected}
+                                        onChange={() => handleSelectRow(row.id)}
+                                    />
+                                </div>
                             </td>
-                        )}
+                            
+                            {centerFilter === 'all' && (
+                                <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap font-medium">
+                                    {row.originalDoc.data.center}
+                                </td>
+                            )}
 
-                        {/* Tlačítko pro označení chyby v GISu */}
-                        <td className="px-4 py-3 text-center">
-                            <button 
-                                onClick={() => onGisFixToggle(row.docId, row.rowIndex)}
-                                title={row.requiresGisFix ? "Odznačit nutnost úpravy" : "Označit jako nutné upravit v GIS"}
-                                className={`p-1.5 rounded-full transition-all ${
-                                    row.requiresGisFix 
-                                        ? "bg-orange-100 text-orange-600 hover:bg-orange-200" 
-                                        : "text-slate-300 hover:text-slate-500 hover:bg-slate-100"
-                                }`}
-                            >
-                                <Wrench size={16} fill={row.requiresGisFix ? "currentColor" : "none"} />
-                            </button>
-                        </td>
-
-                        {displayHeaders.map((header, colIdx) => (
-                            <td 
-                                key={colIdx} 
-                                className={`px-4 py-3 text-sm font-medium ${
-                                    header.toLowerCase().includes('datum') ? 'text-blue-800 whitespace-nowrap font-bold' : 'text-slate-700'
-                                }`}
-                            >
-                                {row.values[colIdx] || '-'}
-                            </td>
-                        ))}
-
-                        {/* Stav a Akce */}
-                        <td className="px-4 py-2 text-right whitespace-nowrap relative">
-                            <div className="flex items-center justify-end gap-3">
-                                <StatusMenu 
-                                    currentStatus={row.status} 
-                                    onSelect={(newStatus) => onStatusChange(row.docId, row.rowIndex, newStatus)}
-                                />
-                                
+                            {/* Tlačítko pro označení chyby v GISu */}
+                            <td className="px-4 py-3 text-center">
                                 <button 
-                                    onClick={() => onViewClick(row.originalDoc)}
-                                    title="Zobrazit originál"
-                                    className="text-slate-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50 transition-colors"
+                                    onClick={() => onGisFixToggle(row.docId, row.rowIndex)}
+                                    title={row.requiresGisFix ? "Odznačit nutnost úpravy" : "Označit jako nutné upravit v GIS"}
+                                    className={`p-1.5 rounded-full transition-all ${
+                                        row.requiresGisFix 
+                                            ? "bg-orange-100 text-orange-600 hover:bg-orange-200" 
+                                            : "text-slate-300 hover:text-slate-500 hover:bg-slate-100"
+                                    }`}
                                 >
-                                    <Eye size={18} />
+                                    <Wrench size={16} fill={row.requiresGisFix ? "currentColor" : "none"} />
                                 </button>
-                            </div>
-                        </td>
-                    </tr>
-                    ))}
+                            </td>
+
+                            {displayHeaders.map((header, colIdx) => (
+                                <td 
+                                    key={colIdx} 
+                                    className={`px-4 py-3 text-sm font-medium ${
+                                        header.toLowerCase().includes('datum') ? 'text-blue-800 whitespace-nowrap font-bold' : 'text-slate-700'
+                                    }`}
+                                >
+                                    {row.values[colIdx] || '-'}
+                                </td>
+                            ))}
+
+                            {/* Stav a Akce */}
+                            <td className="px-4 py-2 text-right whitespace-nowrap relative">
+                                <div className="flex items-center justify-end gap-3">
+                                    <StatusMenu 
+                                        currentStatus={row.status} 
+                                        onSelect={(newStatus) => onStatusChange(row.docId, row.rowIndex, newStatus)}
+                                    />
+                                    
+                                    <button 
+                                        onClick={() => onViewClick(row.originalDoc)}
+                                        title="Zobrazit originál"
+                                        className="text-slate-400 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50 transition-colors"
+                                    >
+                                        <Eye size={18} />
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        );
+                    })}
                 </tbody>
                 </table>
             </div>
@@ -586,6 +667,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
             monthFilter={monthFilter}
             mergeDuplicates={mergeDuplicates}
           />
+      )}
+
+      {/* Floating Bulk Action Bar */}
+      {selectedRowIds.size > 0 && activeTab === 'table' && (
+        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-white rounded-full shadow-2xl border border-slate-200 p-2 z-50 flex items-center gap-4 animate-in slide-in-from-bottom-5 duration-200">
+            <div className="pl-4 pr-2 flex items-center border-r border-slate-200">
+                <span className="font-bold text-slate-800 mr-1">{selectedRowIds.size}</span>
+                <span className="text-sm text-slate-500">vybráno</span>
+                <button 
+                    onClick={() => setSelectedRowIds(new Set())} 
+                    className="ml-2 p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600"
+                >
+                    <X size={14} />
+                </button>
+            </div>
+            
+            <div className="flex items-center gap-2 pr-2">
+                <button 
+                    onClick={() => handleBulkAction(RowStatus.UPLOADED)}
+                    className="flex items-center px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-sm font-semibold transition-colors"
+                >
+                    <CheckCircle2 size={16} className="mr-2" />
+                    Nahráno
+                </button>
+                 <button 
+                    onClick={() => handleBulkAction(RowStatus.REVISION)}
+                    className="flex items-center px-3 py-2 bg-orange-50 text-orange-700 hover:bg-orange-100 rounded-lg text-sm font-semibold transition-colors"
+                >
+                    <Wrench size={16} className="mr-2" />
+                    GIS Úprava
+                </button>
+                <button 
+                    onClick={() => handleBulkAction(RowStatus.UNUSABLE)}
+                    className="flex items-center px-3 py-2 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg text-sm font-semibold transition-colors"
+                >
+                    <Ban size={16} className="mr-2" />
+                    Nepoužitelné
+                </button>
+                 <button 
+                    onClick={() => handleBulkAction(RowStatus.NEW)}
+                    className="flex items-center px-3 py-2 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-semibold transition-colors"
+                >
+                    Reset
+                </button>
+            </div>
+        </div>
       )}
 
       {showPlanModal && (
