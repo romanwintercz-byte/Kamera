@@ -287,7 +287,8 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                     {activeCenters.map(center => {
-                         const yearlyTotal = Object.values(data[center]).reduce((a: number, b: number) => a + b, 0);
+                         // Fix: cast the result of Object.values to number[] to ensure correct typing for reduce and format()
+                         const yearlyTotal = (Object.values(data[center]) as number[]).reduce((a: number, b: number) => a + b, 0);
                          
                          let annualTarget = 0;
                          if (yearFilter !== 'all') {
@@ -321,7 +322,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                                     );
                                 })}
                                 <td className="p-3 text-right font-bold text-slate-800 bg-slate-50">
-                                    {/* Use Intl.NumberFormat to handle Czech number formatting safely */}
+                                    {/* Fix: yearlyTotal is now correctly inferred as a number */}
                                     {new Intl.NumberFormat('cs-CZ').format(yearlyTotal)}
                                 </td>
                             </tr>
