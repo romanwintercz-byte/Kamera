@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { DocumentRecord, AnnualTargets, RowStatus } from '../types';
 import { Ruler, TrendingUp, AlertCircle, CheckCircle2, PieChart, Wrench, Ban, Clock } from 'lucide-react';
@@ -22,6 +23,11 @@ const findDateColumnIndex = (headers: string[]): number => {
 const findLengthColumnIndex = (headers: string[]): number => {
     if (!headers) return -1;
     const lowerHeaders = headers.map(h => h.toLowerCase());
+    
+    // Prioritní hledání "ZKONTROLOVÁNO"
+    const priorityIdx = lowerHeaders.findIndex(h => h === 'zkontrolováno' || h === 'zkontrolovano');
+    if (priorityIdx !== -1) return priorityIdx;
+
     return lowerHeaders.findIndex(h => 
         h.includes('délka') || h.includes('delka') || h.includes('metr') || h.includes('metráž') || h.includes('length') || h === 'm'
     );
@@ -29,10 +35,10 @@ const findLengthColumnIndex = (headers: string[]): number => {
 
 const parseLengthValue = (str: string | undefined): number => {
     if (!str) return 0;
-    const normalized = str.replace(',', '.');
-    const match = normalized.match(/[\d.]+/);
-    if (!match) return 0;
-    const val = parseFloat(match[0]);
+    // Odstranit mezery a nečíselné znaky
+    const cleanStr = str.replace(/\s/g, '').replace(/[^\d.,-]/g, '');
+    const normalized = cleanStr.replace(',', '.');
+    const val = parseFloat(normalized);
     return isNaN(val) ? 0 : val;
 };
 
@@ -47,12 +53,10 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
 }) => {
 
   const { data, statusCounts } = useMemo(() => {
-    // 1. Prepare data structure: Center -> Month -> Meters
     const data: Record<string, Record<number, number>> = {};
     const statusCounts: Record<string, { total: number, uploaded: number, gisIssues: number }> = {}; 
     const seenSignatures = new Set<string>();
 
-    // Init centers from documents AND targets (to show targets even if no docs yet)
     const centersFromTargets = new Set<string>();
     Object.values(targets).forEach(yearData => {
         Object.keys(yearData).forEach(c => centersFromTargets.add(c));
@@ -80,18 +84,15 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
         const lenColIdx = findLengthColumnIndex(doc.data.tableHeaders);
 
         doc.data.tableRows.forEach((row, idx) => {
-            // Smart Merge Check
             const signature = [center, ...row.values.map(v => v?.trim().toLowerCase())].join('|');
             if (mergeDuplicates) {
                 if (seenSignatures.has(signature)) return;
                 seenSignatures.add(signature);
             }
 
-            // Parse Date
             let month = 0;
             let year = 0;
             
-            // Try row date first
             if (dateColIdx >= 0 && row.values[dateColIdx]) {
                 const d = new Date(row.values[dateColIdx]);
                 if (!isNaN(d.getTime())) {
@@ -100,7 +101,6 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                 }
             } 
             
-            // Fallback to document date
             if (month === 0) {
                  const d = new Date(doc.data.date);
                  if (!isNaN(d.getTime())) {
@@ -109,12 +109,9 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                  }
             }
 
-            // Apply Year Filter
             if (yearFilter !== 'all' && year.toString() !== yearFilter) return;
-            // Apply Month Filter (Only for status counts to match view context)
-             if (monthFilter !== 'all' && month.toString() !== monthFilter) return;
+            if (monthFilter !== 'all' && month.toString() !== monthFilter) return;
 
-            // --- METERS CALCULATION (Only if length column exists) ---
             if (lenColIdx >= 0) {
                 const meters = parseLengthValue(row.values[lenColIdx]);
                 if (!data[center]) {
@@ -124,7 +121,6 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                 data[center][month] = (data[center][month] || 0) + meters;
             }
 
-            // --- STATUS & QUALITY COUNTING ---
             if (statusCounts[center]) {
                 statusCounts[center].total++;
                 if (row.status === RowStatus.UPLOADED) {
@@ -142,21 +138,17 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
 
   const activeCenters = Object.keys(data).sort();
 
-  // Helper to get plan based on year filter
   const getFilteredPlanTotal = (center: string) => {
      let annualTarget = 0;
 
      if (yearFilter !== 'all') {
-         // Specific year
          annualTarget = targets[yearFilter]?.[center] || 0;
      } else {
-         // Sum all years available in targets for this center (approximation for "all time")
          Object.keys(targets).forEach(y => {
              annualTarget += (targets[y]?.[center] || 0);
          });
      }
      
-     // If looking at a specific month, the plan is roughly annual / 12
      if (monthFilter !== 'all') {
          return annualTarget / 12;
      }
@@ -168,14 +160,13 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
     if (monthFilter !== 'all') {
         return data[center][parseInt(monthFilter)] || 0;
     }
-    // Sum all months
     return Object.values(data[center]).reduce((a: number, b: number) => a + b, 0);
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       
-      {/* 1. SECTION: Center Overview (Cards) */}
+      {/* 1. SECTION: Center Overview */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
             <Ruler className="mr-2 text-blue-600" size={20} />
@@ -202,15 +193,14 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                         <div className="space-y-1 mb-3">
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500">Realita:</span>
-                                <span className="font-semibold text-slate-900">{actual.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} m</span>
+                                <span className="font-semibold text-slate-900">{new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(actual)} m</span>
                             </div>
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500">Plán ({monthFilter === 'all' ? 'rok' : 'měsíc'}):</span>
-                                <span className="font-medium text-slate-600">{plan.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} m</span>
+                                <span className="font-medium text-slate-600">{new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(plan)} m</span>
                             </div>
                         </div>
 
-                        {/* Progress Bar */}
                         <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
                             <div 
                                 className={`h-2.5 rounded-full ${isSuccess ? 'bg-emerald-500' : (percent < 50 ? 'bg-red-500' : 'bg-amber-500')}`} 
@@ -223,7 +213,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
         </div>
       </div>
 
-       {/* 2. SECTION: Quality & Status Statistics (NEW) */}
+       {/* 2. SECTION: Quality & Status Statistics */}
        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
             <PieChart className="mr-2 text-blue-600" size={20} />
@@ -276,7 +266,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
         </div>
        </div>
 
-      {/* 3. SECTION: Monthly Matrix (Only if looking at all months) */}
+      {/* 3. SECTION: Monthly Matrix */}
       {monthFilter === 'all' && (
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 overflow-hidden">
          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
@@ -299,19 +289,15 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                     {activeCenters.map(center => {
                          const yearlyTotal = Object.values(data[center]).reduce((a: number, b: number) => a + b, 0);
                          
-                         // Determine plan for comparison
                          let annualTarget = 0;
                          if (yearFilter !== 'all') {
                              annualTarget = targets[yearFilter]?.[center] || 0;
                          } else {
-                             // If multiple years selected, taking "current year" as baseline or just 0 to avoid confusion
-                             // Better: Just use 0 or don't color code if "all" years.
-                             // For now, let's try to grab current year or just 0.
                              const currentYear = new Date().getFullYear().toString();
                              annualTarget = targets[currentYear]?.[center] || 0;
                          }
                          
-                         const monthlyTarget = annualTarget / 12; // Average monthly target
+                         const monthlyTarget = annualTarget / 12;
 
                          return (
                             <tr key={center} className="hover:bg-blue-50/30">
@@ -320,14 +306,13 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                                     const monthNum = idx + 1;
                                     const val = data[center][monthNum];
                                     
-                                    // Porovnání s měsíčním průměrem (roční cíl / 12)
-                                    // Color coding only makes sense if we have a specific year target or using a baseline
                                     const metTarget = monthlyTarget > 0 && val >= monthlyTarget;
                                     const closeToTarget = monthlyTarget > 0 && val >= (monthlyTarget * 0.8);
                                     
-                                    let textColor = "text-slate-400"; // Empty
+                                    // Set text color for the cell based on target achievement
+                                    let textColor = "text-slate-400";
                                     if (val > 0) textColor = metTarget ? "text-emerald-600 font-bold" : (closeToTarget ? "text-amber-600" : "text-red-600");
-                                    if (yearFilter === 'all' && val > 0) textColor = "text-slate-700 font-medium"; // Disable coloring for aggregate view to avoid confusion
+                                    if (yearFilter === 'all' && val > 0) textColor = "text-slate-700 font-medium";
 
                                     return (
                                         <td key={idx} className={`p-2 text-right ${textColor}`}>
@@ -336,7 +321,8 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                                     );
                                 })}
                                 <td className="p-3 text-right font-bold text-slate-800 bg-slate-50">
-                                    {yearlyTotal.toLocaleString('cs-CZ')}
+                                    {/* Use Intl.NumberFormat to handle Czech number formatting safely */}
+                                    {new Intl.NumberFormat('cs-CZ').format(yearlyTotal)}
                                 </td>
                             </tr>
                          );

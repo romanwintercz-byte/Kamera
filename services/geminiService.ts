@@ -1,35 +1,11 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+
+import { GoogleGenAI, Type } from "@google/genai";
 import { ExtractedData } from "../types";
 
-// Funkce pro bezpečné získání API klíče v různých prostředích (Vite, CRA, Node)
-const getApiKey = (): string => {
-  // 1. Standardní process.env (pokud je definován a nahrazen bundlerem)
-  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-    return process.env.API_KEY;
-  }
-  
-  // 2. Podpora pro Vite (Vercel deployment často používá Vite)
-  // Vite vyžaduje prefix VITE_ pro proměnné dostupné v prohlížeči
-  try {
-    // @ts-ignore - import.meta je validní ES syntaxe, ale TS může protestovat bez konfigurace
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-      // @ts-ignore
-      if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
-      // @ts-ignore
-      if (import.meta.env.API_KEY) return import.meta.env.API_KEY;
-    }
-  } catch (e) {
-    // Ignorujeme chyby při přístupu k import.meta
-  }
+// Always use named parameter for apiKey and obtain it exclusively from process.env.API_KEY
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-  return '';
-};
-
-const apiKey = getApiKey();
-
-const ai = new GoogleGenAI({ apiKey });
-
-const analysisSchema: Schema = {
+const analysisSchema = {
   type: Type.OBJECT,
   properties: {
     title: {
@@ -84,9 +60,8 @@ const analysisSchema: Schema = {
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const analyzePdfDocument = async (base64Pdf: string): Promise<ExtractedData> => {
-  if (!apiKey) {
-    throw new Error("API Key chybí. Ujistěte se, že máte nastavenou proměnnou prostředí VITE_API_KEY (nebo API_KEY) ve Vercel nastavení.");
-  }
+  // Use gemini-3-pro-preview for complex reasoning tasks like PDF extraction
+  const model = "gemini-3-pro-preview";
 
   const MAX_RETRIES = 3;
   let lastError: any;
@@ -94,7 +69,7 @@ export const analyzePdfDocument = async (base64Pdf: string): Promise<ExtractedDa
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model,
         contents: {
           parts: [
             {

@@ -46,10 +46,16 @@ const findDateColumnIndex = (headers: string[]): number => {
   );
 };
 
-// Helper to detect length/meters column index
+// Helper to detect length/meters column index - prioritizuje "ZKONTROLOVÁNO"
 const findLengthColumnIndex = (headers: string[]): number => {
   if (!headers) return -1;
   const lowerHeaders = headers.map(h => h.toLowerCase());
+  
+  // Prioritní hledání "ZKONTROLOVÁNO"
+  const priorityIdx = lowerHeaders.findIndex(h => h === 'zkontrolováno' || h === 'zkontrolovano');
+  if (priorityIdx !== -1) return priorityIdx;
+
+  // Fallback na ostatní varianty
   return lowerHeaders.findIndex(h => 
     h.includes('délka') || 
     h.includes('delka') || 
@@ -61,14 +67,22 @@ const findLengthColumnIndex = (headers: string[]): number => {
   );
 };
 
-// Helper to parse numeric value from string (e.g. "14,5 m" -> 14.5)
+// Helper to parse numeric value from string (e.g. "14.67m", "14,5 m", "1 250 m" -> 14.67)
 const parseLengthValue = (str: string | undefined): number => {
   if (!str) return 0;
-  const normalized = str.replace(',', '.');
-  const match = normalized.match(/[\d.]+/);
-  if (!match) return 0;
-  const val = parseFloat(match[0]);
+  // Odstranit mezery, písmeno 'm' a další nečíselné znaky kromě tečky a čárky
+  const cleanStr = str.replace(/\s/g, '').replace(/[^\d.,-]/g, '');
+  const normalized = cleanStr.replace(',', '.');
+  const val = parseFloat(normalized);
   return isNaN(val) ? 0 : val;
+};
+
+// Helper for formatting date to Czech format
+const formatToCzechDate = (dateStr: string): string => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('cs-CZ');
 };
 
 // --- Komponenta pro Status Menu ---
@@ -180,7 +194,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
                 values: row.values,
                 filterDate: rowDateStr,
                 status: row.status || RowStatus.NEW,
-                requiresGisFix: !!row.requiresGisFix // Default to false if undefined
+                requiresGisFix: !!row.requiresGisFix 
             });
         }
     }
@@ -234,6 +248,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
     ? filteredRows[0].originalDoc.data.tableHeaders 
     : (documents.length > 0 ? documents[0].data.tableHeaders : []);
 
+  const lengthColIdx = findLengthColumnIndex(displayHeaders);
+  const dateColIdx = findDateColumnIndex(displayHeaders);
+
   // --- SELECTION HANDLERS ---
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
@@ -257,7 +274,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
   const handleBulkAction = (status: RowStatus) => {
     if (selectedRowIds.size === 0) return;
     
-    // Convert selected IDs to {docId, rowIndex} array
     const itemsToUpdate: {docId: string, rowIndex: number}[] = [];
     
     allRows.forEach(row => {
@@ -270,7 +286,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
     });
 
     onBulkStatusChange(itemsToUpdate, status);
-    setSelectedRowIds(new Set()); // Clear selection after action
+    setSelectedRowIds(new Set());
   };
 
   const isAllSelected = filteredRows.length > 0 && filteredRows.every(r => selectedRowIds.has(r.id));
@@ -278,8 +294,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
 
   // --- STATS CALCULATION ---
   const stats = useMemo(() => {
-    const lengthColIdx = findLengthColumnIndex(displayHeaders);
-    
     return filteredRows.reduce((acc, row) => {
         acc.count++;
         
@@ -298,13 +312,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
         }
         return acc;
     }, { totalMeters: 0, uploadedMeters: 0, todoMeters: 0, count: 0, gisFixCount: 0 });
-  }, [filteredRows, displayHeaders]);
+  }, [filteredRows, lengthColIdx]);
 
   const revisionPercentage = stats.count > 0 ? (stats.gisFixCount / stats.count) * 100 : 0;
 
   const getRowClasses = (status: RowStatus, isSelected: boolean) => {
     let base = "transition-colors border-b border-slate-100 last:border-0";
-    if (isSelected) base += " bg-blue-50/80"; // Highlight selected
+    if (isSelected) base += " bg-blue-50/80";
     else {
         switch(status) {
             case RowStatus.UPLOADED: base += " bg-emerald-50/70 hover:bg-emerald-100/80"; break;
@@ -426,9 +440,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
         </div>
       </div>
 
-      {/* STATISTICS CARDS (Always visible) */}
+      {/* STATISTICS CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {/* Total Length */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-200 relative overflow-hidden">
             <div className="flex items-center justify-between mb-2 relative z-10">
                 <h3 className="text-sm font-semibold text-slate-500">Celková délka</h3>
@@ -440,7 +453,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
             <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-blue-50 rounded-full opacity-50 z-0"></div>
         </div>
 
-        {/* Uploaded (Done) */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-emerald-200 relative overflow-hidden">
              <div className="flex items-center justify-between mb-2 relative z-10">
                 <h3 className="text-sm font-semibold text-emerald-600">Nahráno (GIS)</h3>
@@ -452,7 +464,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-emerald-50 rounded-full opacity-50 z-0"></div>
         </div>
 
-        {/* GIS Fixes Needed (Permanent Attribute) */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-orange-200 relative overflow-hidden">
             <div className="flex items-center justify-between mb-2 relative z-10">
                 <h3 className="text-sm font-semibold text-orange-600">Nutná úprava v GIS</h3>
@@ -469,7 +480,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-orange-50 rounded-full opacity-50 z-0"></div>
         </div>
 
-        {/* To Do / In Progress (Current Status) */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-amber-200 relative overflow-hidden">
             <div className="flex items-center justify-between mb-2 relative z-10">
                 <h3 className="text-sm font-semibold text-amber-600">Zbývá (m)</h3>
@@ -481,7 +491,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
              <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-amber-50 rounded-full opacity-50 z-0"></div>
         </div>
 
-        {/* Count */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative overflow-hidden">
             <div className="flex items-center justify-between mb-2 relative z-10">
                 <h3 className="text-sm font-semibold text-slate-500">Počet úseků</h3>
@@ -494,7 +503,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
         </div>
       </div>
       
-      {/* View Toggle (Table vs Stats) */}
+      {/* View Toggle */}
       <div className="flex justify-center border-b border-slate-200 mb-4">
         <div className="flex space-x-6">
             <button 
@@ -547,21 +556,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
                         </th>
                     )}
 
-                    {/* NOVÝ SLOUPEC: GIS check */}
                     <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap w-16">
                         GIS?
                     </th>
                     
-                    {displayHeaders.map((header, idx) => (
-                        <th 
-                        key={idx} 
-                        className={`px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
-                            header.toLowerCase().includes('datum') ? 'text-blue-700 bg-blue-50/50' : 'text-slate-700'
-                        }`}
-                        >
-                        {header}
-                        </th>
-                    ))}
+                    {displayHeaders.map((header, idx) => {
+                        const isDate = idx === dateColIdx;
+                        const isLength = idx === lengthColIdx;
+                        const isPriorityLength = isLength && (header.toLowerCase() === 'zkontrolováno' || header.toLowerCase() === 'zkontrolovano');
+                        
+                        return (
+                          <th 
+                            key={idx} 
+                            className={`px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
+                                isDate ? 'text-blue-700 bg-blue-50/50' : 
+                                isPriorityLength ? 'text-emerald-700 bg-emerald-50/50' : 'text-slate-700'
+                            }`}
+                          >
+                            {header}
+                          </th>
+                        );
+                    })}
 
                     <th className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap w-48">
                         Stav / Akce
@@ -590,7 +605,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
                                 </td>
                             )}
 
-                            {/* Tlačítko pro označení chyby v GISu */}
                             <td className="px-4 py-3 text-center">
                                 <button 
                                     onClick={() => onGisFixToggle(row.docId, row.rowIndex)}
@@ -605,18 +619,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
                                 </button>
                             </td>
 
-                            {displayHeaders.map((header, colIdx) => (
-                                <td 
-                                    key={colIdx} 
-                                    className={`px-4 py-3 text-sm font-medium ${
-                                        header.toLowerCase().includes('datum') ? 'text-blue-800 whitespace-nowrap font-bold' : 'text-slate-700'
-                                    }`}
-                                >
-                                    {row.values[colIdx] || '-'}
-                                </td>
-                            ))}
+                            {displayHeaders.map((header, colIdx) => {
+                                const isDate = colIdx === dateColIdx;
+                                const isLength = colIdx === lengthColIdx;
+                                const isPriorityLength = isLength && (header.toLowerCase() === 'zkontrolováno' || header.toLowerCase() === 'zkontrolovano');
+                                
+                                return (
+                                    <td 
+                                        key={colIdx} 
+                                        className={`px-4 py-3 text-sm font-medium ${
+                                            isDate ? 'text-blue-800 whitespace-nowrap font-bold' : 
+                                            isPriorityLength ? 'bg-emerald-50/30 font-bold text-emerald-800' : 'text-slate-700'
+                                        }`}
+                                    >
+                                        {isDate ? formatToCzechDate(row.values[colIdx]) : (row.values[colIdx] || '-')}
+                                    </td>
+                                );
+                            })}
 
-                            {/* Stav a Akce */}
                             <td className="px-4 py-2 text-right whitespace-nowrap relative">
                                 <div className="flex items-center justify-end gap-3">
                                     <StatusMenu 
