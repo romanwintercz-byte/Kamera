@@ -3,6 +3,7 @@ import { Upload, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from './Button';
 import { analyzePdfDocument } from '../services/geminiService';
 import { DocumentRecord } from '../types';
+import { v4 as uuidv4 } from 'uuid';
 
 interface ScannerProps {
   onScanComplete: (doc: DocumentRecord) => void;
@@ -52,6 +53,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanComplete, onCancel }) =>
       const extractedData = await analyzePdfDocument(base64Data);
 
       // PŘEJMENOVÁNÍ DLE POŽADAVKU: Středisko - Rok/Měsíc
+      // Datum je ve formátu YYYY-MM-DD
       let formattedTitle = extractedData.title;
       try {
         const dateObj = new Date(extractedData.date);
@@ -63,14 +65,14 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanComplete, onCancel }) =>
                 : 'Neznámé středisko';
             
             formattedTitle = `${centerName} - ${year}/${month}`;
-            extractedData.title = formattedTitle; 
+            extractedData.title = formattedTitle; // Aktualizace v datech
         }
       } catch (e) {
         console.warn("Nepodařilo se formátovat název podle data", e);
       }
 
       const newRecord: DocumentRecord = {
-        id: crypto.randomUUID(),
+        id: uuidv4(),
         fileName: file.name,
         uploadDate: new Date().toISOString(),
         data: extractedData,
