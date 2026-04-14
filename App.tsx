@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { DocumentRecord, AppView, RowStatus, AnnualTargets } from './types';
-import { Dashboard } from './components/Dashboard';
-import { Scanner } from './components/Scanner';
-import { DetailView } from './components/DetailView';
-import { Database, Plus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { DocumentRecord, AppView, RowStatus, AnnualTargets } from './types.ts';
+import { Dashboard } from './components/Dashboard.tsx';
+import { Scanner } from './components/Scanner.tsx';
+import { DetailView } from './components/DetailView.tsx';
+import { Database, Plus, Download, Upload } from 'lucide-react';
 
 const STORAGE_KEY = 'pdf-db-documents';
 const TARGETS_KEY = 'pdf-db-targets';
@@ -13,6 +13,7 @@ const App: React.FC = () => {
   const [targets, setTargets] = useState<AnnualTargets>({});
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load documents
   useEffect(() => {
@@ -30,15 +31,10 @@ const App: React.FC = () => {
     if (storedTargets) {
       try {
         const parsed = JSON.parse(storedTargets);
-        
-        // Jednoduchá migrace starého formátu { "Středisko": 1000 } na nový { "2024": { "Středisko": 1000 } }
-        // Zjistíme, jestli hodnoty jsou čísla (starý formát)
         const isOldFormat = Object.values(parsed).some(val => typeof val === 'number');
-        
         if (isOldFormat) {
             const currentYear = new Date().getFullYear().toString();
-            // @ts-ignore - dočasně ignorujeme typ pro migraci
-            setTargets({ [currentYear]: parsed });
+            setTargets({ [currentYear]: parsed as any });
         } else {
             setTargets(parsed);
         }
@@ -82,17 +78,13 @@ const App: React.FC = () => {
     setDocuments(prevDocs => {
       return prevDocs.map(doc => {
         if (doc.id !== docId) return doc;
-
         const newDoc = { ...doc };
         newDoc.data = { ...doc.data };
         newDoc.data.tableRows = [...doc.data.tableRows];
-        
-        const existingRow = newDoc.data.tableRows[rowIndex];
         newDoc.data.tableRows[rowIndex] = {
-            ...existingRow,
+            ...newDoc.data.tableRows[rowIndex],
             status: newStatus
         };
-
         return newDoc;
       });
     });
@@ -101,15 +93,11 @@ const App: React.FC = () => {
   const handleBulkStatusChange = (items: { docId: string, rowIndex: number }[], newStatus: RowStatus) => {
     setDocuments(prevDocs => {
       return prevDocs.map(doc => {
-        // Zjistíme, jestli se tento dokument má updatovat
         const updatesForDoc = items.filter(item => item.docId === doc.id);
-        
         if (updatesForDoc.length === 0) return doc;
-
         const newDoc = { ...doc };
         newDoc.data = { ...doc.data };
         newDoc.data.tableRows = [...doc.data.tableRows];
-
         updatesForDoc.forEach(update => {
             if (newDoc.data.tableRows[update.rowIndex]) {
                 newDoc.data.tableRows[update.rowIndex] = {
@@ -118,7 +106,6 @@ const App: React.FC = () => {
                 };
             }
         });
-
         return newDoc;
       });
     });
@@ -128,17 +115,14 @@ const App: React.FC = () => {
     setDocuments(prevDocs => {
       return prevDocs.map(doc => {
         if (doc.id !== docId) return doc;
-
         const newDoc = { ...doc };
         newDoc.data = { ...doc.data };
         newDoc.data.tableRows = [...doc.data.tableRows];
-        
         const existingRow = newDoc.data.tableRows[rowIndex];
         newDoc.data.tableRows[rowIndex] = {
             ...existingRow,
             requiresGisFix: !existingRow.requiresGisFix
         };
-
         return newDoc;
       });
     });
@@ -148,11 +132,54 @@ const App: React.FC = () => {
     setTargets(newTargets);
   };
 
+  const handleExport = () => {
+    const data = {
+      documents,
+      targets
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pdf-databaze-export-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const parsed = JSON.parse(content);
+        
+        if (parsed.documents && Array.isArray(parsed.documents)) {
+          setDocuments(parsed.documents);
+        }
+        if (parsed.targets && typeof parsed.targets === 'object') {
+          setTargets(parsed.targets);
+        }
+        alert('Data byla úspěšně importována.');
+      } catch (error) {
+        console.error('Chyba při importu:', error);
+        alert('Nepodařilo se importovat data. Zkontrolujte formát souboru.');
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const selectedDocument = documents.find(d => d.id === selectedDocId);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-      {/* Navbar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div 
@@ -168,18 +195,40 @@ const App: React.FC = () => {
           </div>
           
           {view === AppView.DASHBOARD && (
-            <button 
-              onClick={() => setView(AppView.UPLOAD)}
-              className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center"
-            >
-              <Plus size={16} className="mr-2" />
-              Nahrát PDF
-            </button>
+            <div className="flex items-center gap-3">
+              <input 
+                type="file" 
+                accept=".json" 
+                ref={fileInputRef}
+                className="hidden" 
+                onChange={handleImport} 
+              />
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center"
+              >
+                <Upload size={16} className="mr-2" />
+                Import
+              </button>
+              <button 
+                onClick={handleExport}
+                className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center"
+              >
+                <Download size={16} className="mr-2" />
+                Export
+              </button>
+              <button 
+                onClick={() => setView(AppView.UPLOAD)}
+                className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center"
+              >
+                <Plus size={16} className="mr-2" />
+                Nahrát PDF
+              </button>
+            </div>
           )}
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {view === AppView.DASHBOARD && (
           <Dashboard 
