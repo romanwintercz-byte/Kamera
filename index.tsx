@@ -1,31 +1,31 @@
-<!DOCTYPE html>
-<html lang="cs">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Inteligentní PDF Databáze</title>
-    <script>
-      // Okamžitý polyfill pro process.env - musí být úplně první
-      window.process = { env: { API_KEY: "" } };
-    </script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
-    "lucide-react": "https://esm.sh/lucide-react@0.460.0",
-    "@google/genai": "https://esm.sh/@google/genai@0.2.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react/": "https://esm.sh/react@^19.2.4/"
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App.tsx';
+
+// Globální zachycení chyb pro debugging na produkci
+window.onerror = (message, source, lineno, colno, error) => {
+  console.error("Kritická chyba aplikace:", message, "na", source, ":", lineno);
+};
+
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  console.error("Nepodařilo se najít 'root' element!");
+} else {
+  try {
+    const root = createRoot(rootElement);
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  } catch (e) {
+    console.error("Chyba při renderování aplikace:", e);
+    if (rootElement) {
+      rootElement.innerHTML = `<div style="padding: 20px; color: red; font-family: sans-serif;">
+        <h1 style="font-size: 18px;">Chyba při startu aplikace</h1>
+        <pre style="background: #fee; padding: 10px; border-radius: 4px;">${e instanceof Error ? e.message : 'Neznámá chyba'}</pre>
+        <p style="font-size: 14px; color: #666;">Zkontrolujte konzoli v nástrojích pro vývojáře (F12).</p>
+      </div>`;
+    }
   }
 }
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
-  <body class="bg-slate-50">
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-</body>
-</html>
