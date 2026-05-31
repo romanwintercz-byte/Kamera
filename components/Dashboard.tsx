@@ -243,11 +243,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
         if (lengthColIdx >= 0) {
             const val = parseLengthValue(row.values[lengthColIdx]);
             acc.totalMeters += val;
-            if (row.status === RowStatus.UPLOADED) acc.uploadedMeters += val;
-            else if (row.status === RowStatus.NEW || row.status === RowStatus.REVISION) acc.todoMeters += val;
+            if (row.status === RowStatus.UPLOADED) {
+              acc.uploadedMeters += val;
+            } else if (row.status === RowStatus.UNUSABLE) {
+              acc.unusableMeters += val;
+              acc.unusableCount++;
+            } else if (row.status === RowStatus.NEW || row.status === RowStatus.REVISION) {
+              acc.todoMeters += val;
+            }
         }
         return acc;
-    }, { totalMeters: 0, uploadedMeters: 0, todoMeters: 0, count: 0, gisFixCount: 0 });
+    }, { totalMeters: 0, uploadedMeters: 0, todoMeters: 0, unusableMeters: 0, count: 0, gisFixCount: 0, unusableCount: 0 });
   }, [filteredRows, lengthColIdx]);
 
   return (
@@ -305,7 +311,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <h3 className="text-xs font-semibold text-slate-500 mb-1">Celková délka</h3>
             <p className="text-xl font-bold">{stats.totalMeters.toLocaleString('cs-CZ')} m</p>
@@ -321,6 +327,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
         <div className="bg-white p-4 rounded-xl shadow-sm border border-amber-200">
             <h3 className="text-xs font-semibold text-amber-600 mb-1">Zbývá</h3>
             <p className="text-xl font-bold text-amber-700">{stats.todoMeters.toLocaleString('cs-CZ')} m</p>
+        </div>
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-red-200">
+            <h3 className="text-xs font-semibold text-red-600 mb-1 flex items-center justify-between">Nelze použít <span className="text-[10px] bg-red-100 px-1.5 py-0.5 rounded text-red-700">{stats.totalMeters > 0 ? Math.round((stats.unusableMeters / stats.totalMeters) * 100) : 0}%</span></h3>
+            <p className="text-xl font-bold text-red-700">{stats.unusableMeters.toLocaleString('cs-CZ')} m <span className="text-xs font-normal text-red-500 ml-1">({stats.unusableCount} úseků)</span></p>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
             <h3 className="text-xs font-semibold text-slate-500 mb-1">Počet úseků</h3>

@@ -54,7 +54,7 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
 
   const { data, statusCounts } = useMemo(() => {
     const data: Record<string, Record<number, number>> = {};
-    const statusCounts: Record<string, { total: number, uploaded: number, gisIssues: number }> = {}; 
+    const statusCounts: Record<string, { total: number, uploaded: number, gisIssues: number, unusable: number }> = {}; 
     const seenSignatures = new Set<string>();
 
     const centersFromTargets = new Set<string>();
@@ -72,7 +72,8 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
         statusCounts[c] = {
             total: 0,
             uploaded: 0,
-            gisIssues: 0
+            gisIssues: 0,
+            unusable: 0
         };
     });
 
@@ -114,17 +115,21 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
 
             if (lenColIdx >= 0) {
                 const meters = parseLengthValue(row.values[lenColIdx]);
-                if (!data[center]) {
-                    data[center] = {};
-                    for(let m=1; m<=12; m++) data[center][m] = 0;
+                if (!row.status || row.status !== RowStatus.UNUSABLE) {
+                    if (!data[center]) {
+                        data[center] = {};
+                        for(let m=1; m<=12; m++) data[center][m] = 0;
+                    }
+                    data[center][month] = (data[center][month] || 0) + meters;
                 }
-                data[center][month] = (data[center][month] || 0) + meters;
             }
 
             if (statusCounts[center]) {
                 statusCounts[center].total++;
                 if (row.status === RowStatus.UPLOADED) {
                     statusCounts[center].uploaded++;
+                } else if (row.status === RowStatus.UNUSABLE) {
+                    statusCounts[center].unusable++;
                 }
                 if (row.requiresGisFix) {
                     statusCounts[center].gisIssues++;
@@ -227,16 +232,19 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                         <th className="p-3 text-right font-semibold">Celkem záznamů</th>
                         <th className="p-3 text-right font-semibold text-emerald-600">Hotovo (Nahráno)</th>
                         <th className="p-3 text-right font-semibold text-orange-600">Chybovost (GIS Úpravy)</th>
-                        <th className="p-3 text-left font-semibold w-1/3">Podíl chybovosti</th>
+                        <th className="p-3 text-left font-semibold w-32">Podíl chybovosti</th>
+                        <th className="p-3 text-right font-semibold text-red-600 border-l border-slate-200">Nelze použít</th>
+                        <th className="p-3 text-left font-semibold w-32">Podíl nepoužitelných</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                      {activeCenters.map(center => {
-                         const stats = statusCounts[center] || { total: 0, uploaded: 0, gisIssues: 0 };
+                         const stats = statusCounts[center] || { total: 0, uploaded: 0, gisIssues: 0, unusable: 0 };
                          if (stats.total === 0) return null;
 
                          const pctGisIssues = (stats.gisIssues / stats.total) * 100;
                          const pctUploaded = (stats.uploaded / stats.total) * 100;
+                         const pctUnusable = (stats.unusable / stats.total) * 100 || 0;
 
                          return (
                              <tr key={center} className="hover:bg-slate-50">
@@ -256,6 +264,17 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
                                             <div className="bg-orange-500 h-full" style={{ width: `${pctGisIssues}%` }} title="Chybovost" />
                                         </div>
                                         <span className="text-xs font-bold text-orange-600 w-10 text-right">{pctGisIssues.toFixed(1)}%</span>
+                                     </div>
+                                 </td>
+                                 <td className="p-3 text-right font-bold text-red-700 border-l border-slate-200">
+                                     {stats.unusable || 0}
+                                 </td>
+                                 <td className="p-3">
+                                     <div className="flex items-center gap-2">
+                                        <div className="flex-1 h-3 rounded-full overflow-hidden bg-slate-100">
+                                            <div className="bg-red-500 h-full" style={{ width: `${pctUnusable}%` }} title="Nepoužitelné" />
+                                        </div>
+                                        <span className="text-xs font-bold text-red-600 w-10 text-right">{pctUnusable.toFixed(1)}%</span>
                                      </div>
                                  </td>
                              </tr>
