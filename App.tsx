@@ -111,6 +111,20 @@ const App: React.FC = () => {
     });
   };
 
+  const handleBulkDelete = (items: { docId: string, rowIndex: number }[]) => {
+    setDocuments(prevDocs => {
+      return prevDocs.map(doc => {
+        const deletesForDoc = items.filter(item => item.docId === doc.id).map(item => item.rowIndex);
+        if (deletesForDoc.length === 0) return doc;
+        
+        const newDoc = { ...doc };
+        newDoc.data = { ...doc.data };
+        newDoc.data.tableRows = newDoc.data.tableRows.filter((_, idx) => !deletesForDoc.includes(idx));
+        return newDoc;
+      });
+    });
+  };
+
   const handleRowGisFixToggle = (docId: string, rowIndex: number) => {
     setDocuments(prevDocs => {
       return prevDocs.map(doc => {
@@ -239,6 +253,7 @@ const App: React.FC = () => {
             onViewClick={handleViewDoc}
             onStatusChange={handleRowStatusChange}
             onBulkStatusChange={handleBulkStatusChange}
+            onBulkDelete={handleBulkDelete}
             onGisFixToggle={handleRowGisFixToggle}
             onTargetsUpdate={handleTargetsUpdate}
           />

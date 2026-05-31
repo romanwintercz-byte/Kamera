@@ -13,6 +13,7 @@ interface DashboardProps {
   onViewClick: (doc: DocumentRecord) => void;
   onStatusChange: (docId: string, rowIndex: number, status: RowStatus) => void;
   onBulkStatusChange: (items: { docId: string, rowIndex: number }[], status: RowStatus) => void;
+  onBulkDelete: (items: { docId: string, rowIndex: number }[]) => void;
   onGisFixToggle: (docId: string, rowIndex: number) => void;
   onTargetsUpdate: (targets: AnnualTargets) => void;
 }
@@ -124,7 +125,7 @@ const StatusMenu: React.FC<{
   );
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddClick, onDeleteClick, onViewClick, onStatusChange, onBulkStatusChange, onGisFixToggle, onTargetsUpdate }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddClick, onDeleteClick, onViewClick, onStatusChange, onBulkStatusChange, onBulkDelete, onGisFixToggle, onTargetsUpdate }) => {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [centerFilter, setCenterFilter] = React.useState<string>('all');
   const [yearFilter, setYearFilter] = React.useState<string>('all');
@@ -196,6 +197,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
       row.originalDoc.data.title.toLowerCase().includes(lowerTerm);
     return matchesCenter && matchesYear && matchesMonth && matchesSearch;
   });
+
+  const toggleRowSelection = (id: string) => {
+    setSelectedRowIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      return newSet;
+    });
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedRowIds.size === filteredRows.length && filteredRows.length > 0) {
+      setSelectedRowIds(new Set());
+    } else {
+      setSelectedRowIds(new Set(filteredRows.map(r => r.id)));
+    }
+  };
+
+  const handleBulkAction = (status: RowStatus) => {
+    const items = filteredRows.filter(r => selectedRowIds.has(r.id)).map(r => ({ docId: r.docId, rowIndex: r.rowIndex }));
+    onBulkStatusChange(items, status);
+    setSelectedRowIds(new Set());
+  };
+
+  const handleBulkDeletion = () => {
+    if (confirm("Opravdu chcete smazat vybrané prohlídky? Tuto akci nelze vrátit.")) {
+      const items = filteredRows.filter(r => selectedRowIds.has(r.id)).map(r => ({ docId: r.docId, rowIndex: r.rowIndex }));
+      onBulkDelete(items);
+      setSelectedRowIds(new Set());
+    }
+  };
 
   const displayHeaders = filteredRows.length > 0 
     ? filteredRows[0].originalDoc.data.tableHeaders 
@@ -304,11 +336,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
       </div>
 
       {activeTab === 'table' ? (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                        <th className="px-4 py-3">Středisko</th>
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            {selectedRowIds.size > 0 && (
+                <div className="bg-blue-50 border-b border-blue-100 p-3 flex items-center justify-between">
+                    <div className="text-sm font-medium text-blue-800">
+                        Vybráno položek: {selectedRowIds.size}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <StatusMenu currentStatus={RowStatus.NEW} onSelect={handleBulkAction} />
+                        <button 
+                            onClick={handleBulkDeletion}
+                            className="flex items-center px-3 py-1.5 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                        >
+                            <Ban size={16} className="mr-1.5" />
+                            Smazat
+                        </button>
+                    </div>
+                </div>
+            )}
+            <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                            <th className="px-4 py-3 w-10">
+                                <input 
+                                    type="checkbox" 
+                                    checked={filteredRows.length > 0 && selectedRowIds.size === filteredRows.length}
+                                    onChange={toggleAllSelection}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                />
+                            </th>
+                            <th className="px-4 py-3">Středisko</th>
                         <th className="px-4 py-3">GIS?</th>
                         {displayHeaders.map((h, i) => <th key={i} className="px-4 py-3">{h}</th>)}
                         <th className="px-4 py-3 text-right">Akce</th>
@@ -316,7 +374,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
                 </thead>
                 <tbody>
                     {filteredRows.map(row => (
-                        <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50">
+                        <tr key={row.id} className={`border-b border-slate-100 hover:bg-slate-50 ${selectedRowIds.has(row.id) ? 'bg-blue-50/50' : ''}`}>
+                            <td className="px-4 py-3">
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectedRowIds.has(row.id)}
+                                    onChange={() => toggleRowSelection(row.id)}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                />
+                            </td>
                             <td className="px-4 py-3">{row.originalDoc.data.center}</td>
                             <td className="px-4 py-3">
                                 <button onClick={() => onGisFixToggle(row.docId, row.rowIndex)} className={`p-1 rounded ${row.requiresGisFix ? 'text-orange-600' : 'text-slate-300'}`}>
@@ -335,6 +401,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ documents, targets, onAddC
                     ))}
                 </tbody>
             </table>
+            </div>
         </div>
       ) : (
           <StatisticsPanel 
