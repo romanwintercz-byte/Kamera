@@ -183,27 +183,45 @@ export const StatisticsPanel: React.FC<StatisticsPanelProps> = ({
             {activeCenters.map(center => {
                 const plan = getFilteredPlanTotal(center);
                 const actual = getFilteredActualTotal(center);
-                const percent = plan > 0 ? (actual / plan) * 100 : 0;
+                const isAllMonths = monthFilter === 'all';
+                const ytdPlan = isAllMonths ? (plan / 12) * (new Date().getMonth() + 1) : plan;
+                const percentYtd = ytdPlan > 0 ? (actual / ytdPlan) * 100 : 0;
+                const percentYear = plan > 0 ? (actual / plan) * 100 : 0;
+                const percent = isAllMonths ? percentYtd : percentYear;
                 const isSuccess = percent >= 100;
                 
                 return (
                     <div key={center} className="bg-slate-50 rounded-lg p-4 border border-slate-200 hover:border-blue-300 transition-colors">
                         <div className="flex justify-between items-start mb-2">
                             <h4 className="font-bold text-slate-700">{center}</h4>
-                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${isSuccess ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
-                                {percent.toFixed(0)} %
-                            </span>
+                            <div className="text-right flex flex-col gap-1 items-end">
+                                <span className={`text-xs font-bold px-2 py-1 rounded-full ${isSuccess ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                                    {percent.toFixed(0)} % {isAllMonths ? 'YTD' : ''}
+                                </span>
+                            </div>
                         </div>
                         
                         <div className="space-y-1 mb-3">
                             <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Realita:</span>
+                                <span className="text-slate-500">Realita {isAllMonths ? 'YTD' : ''}:</span>
                                 <span className="font-semibold text-slate-900">{new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(actual)} m</span>
                             </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Plán ({monthFilter === 'all' ? 'rok' : 'měsíc'}):</span>
-                                <span className="font-medium text-slate-600">{new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(plan)} m</span>
+                            {isAllMonths && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-slate-500">Plán YTD:</span>
+                                    <span className="font-medium text-blue-600">{new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(ytdPlan)} m</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-sm border-t border-slate-100 pt-1 mt-1">
+                                <span className="text-slate-500">Plán ({isAllMonths ? 'Rok' : 'Měsíc'}):</span>
+                                <span className="font-medium text-slate-400">{new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(plan)} m</span>
                             </div>
+                            {isAllMonths && (
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-slate-400">Plnění (Rok):</span>
+                                    <span className="font-medium text-slate-400">{percentYear.toFixed(0)} %</span>
+                                </div>
+                            )}
                         </div>
 
                         <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
