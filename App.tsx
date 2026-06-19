@@ -55,7 +55,36 @@ const App: React.FC = () => {
   }, [targets]);
 
   const handleScanComplete = (newDoc: DocumentRecord) => {
-    setDocuments(prev => [newDoc, ...prev]);
+    setDocuments(prev => {
+      const existingStates = new Map<string, {status?: RowStatus, requiresGisFix?: boolean}>();
+      
+      prev.forEach(doc => {
+        doc.data.tableRows.forEach(row => {
+          const signature = [doc.data.center, ...row.values.map(v => v?.trim().toLowerCase())].join('|');
+          if (!existingStates.has(signature)) {
+            existingStates.set(signature, {
+              status: row.status,
+              requiresGisFix: row.requiresGisFix
+            });
+          }
+        });
+      });
+
+      newDoc.data.tableRows = newDoc.data.tableRows.map(row => {
+        const signature = [newDoc.data.center, ...row.values.map(v => v?.trim().toLowerCase())].join('|');
+        const existing = existingStates.get(signature);
+        if (existing) {
+          return {
+            ...row,
+            status: existing.status || row.status,
+            requiresGisFix: existing.requiresGisFix || row.requiresGisFix
+          };
+        }
+        return row;
+      });
+
+      return [newDoc, ...prev];
+    });
     setView(AppView.DASHBOARD);
   };
 
